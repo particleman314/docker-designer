@@ -33,19 +33,12 @@ else
   export ENABLE_DETAILS
 fi
 
-###############################################################################
-# Absolute minimum default settings
-###############################################################################
-__CURRENT_DIR="$( \pwd -L )"
-__CLEANUP_FILE="${__CURRENT_DIR}/.cleanup"
-__ENTRYPOINT_DIR='/usr/local/bin/docker-entries.d'
-
-trap "cleanup; exit 1" SIGINT SIGTERM
-
 BUILD_TYPE=0
 
 UBUNTU_PACKAGES=
 ENV_LOOKUP=
+
+trap "cleanup; exit 1" SIGINT SIGTERM
 
 __read_defaults()
 {
@@ -117,7 +110,6 @@ build_image()
   }
 
   UBUNTU_MAPPED=0
-  add_environment_setting ' __ENTRYPOINT_DIR'
 
   eval set -- "$options"
   while true
@@ -131,42 +123,44 @@ build_image()
         DOCKERFILE_LOCATION="$1";
         ;;
     -j|--java)
-        shift; # The arg is next in position args
-        JAVA_VERSION="$( printf "%s\n" "$1" | \cut -f 1 -d ':' )";
-        JAVA_MAJOR_VERSION="$( printf "%s\n" "${JAVA_VERSION}" | \cut -f 2 -d '.' )";
-        JAVA_HOME="$( printf "%s\n" "$1" | \cut -f 2 -d ':' )";
-        [ "${JAVA_HOME}" == "${JAVA_VERSION}" ] && JAVA_HOME="${__DEFAULT_JAVA_HOME}";
-        JDK_HOME="${JAVA_HOME}";
-        DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
-        DOCKER_COMPONENT_NAMES+=' PROG:java';
+        shift;
+        if [ -f 'lib/java_handler.sh' ];
+        then
+          . 'lib/java_handler.sh';
+          DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
+          DOCKER_COMPONENT_NAMES+=' PROG:java';
 
-        add_environment_setting 'JAVA_VERSION' 'JAVA_MAJOR_VERSION' 'JAVA_HOME' 'JDK_HOME';
-
-        __record 'INFO' 'Adding Java for docker build...'
+          __record 'INFO' 'Adding Java for docker build...';
+        else
+          __record 'ERROR' 'Cannot find JAVA handler library!';
+        fi;
         ;;
     -a|--ant)
         shift;
-        ANT_VERSION="$( printf "%s\n" "$1" | \cut -f 1 -d ':' )";
-        ANT_HOME="$( printf "%s\n" "$1" | \cut -f 2 -d ':' )";
-        [ "${ANT_HOME}" == "${ANT_VERSION}" ] && ANT_HOME="${__DEFAULT_ANT_HOME}";
-        DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
-        DOCKER_COMPONENT_NAMES+=' PROG:ant';
+        if [ -f 'lib/ant_handler.sh' ];
+        then
+          . 'lib/ant_handler.sh';
+          DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
+          DOCKER_COMPONENT_NAMES+=' PROG:ant';
 
-        add_environment_setting 'ANT_VERSION' 'ANT_HOME';
-
-        __record 'INFO' 'Adding Apache-Ant for docker build...'
+          __record 'INFO' 'Adding Apache-Ant for docker build...';
+        else
+          __record 'ERROR' 'Cannot find Apache-Ant handler library!';
+        fi;
         ;;
     -m|--maven)
         shift;
-        MAVEN_VERSION="$( printf "%s\n" "$1" | \cut -f 1 -d ':' )";
-        M2_HOME="$( printf "%s\n" "$1" | \cut -f 2 -d ':' )";
-        [ "${M2_HOME}" == "${MAVEN_VERSION}" ] && M2_HOME="${__DEFAULT_MAVEN_HOME}";
-        DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
-        DOCKER_COMPONENT_NAMES+=' PROG:maven';
+        if [ -f 'lib/maven_handler.sh' ];
+        then
+          . 'lib/maven_handler.sh';
+        
+          DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
+          DOCKER_COMPONENT_NAMES+=' PROG:maven';
 
-        add_environment_setting 'MAVEN_VERSION' 'M2_HOME';
-
-        __record 'INFO' 'Adding Apache-Maven for docker build...'
+          __record 'INFO' 'Adding Apache-Maven for docker build...';
+        else
+          __record 'ERROR' 'Cannot find Apache-Maven handler library!';
+        fi;
         ;;
     -u|--ubuntu)
         shift;
@@ -178,7 +172,7 @@ build_image()
         __record 'INFO' 'Using Ubuntu for docker build...'
         ;;
        --contname)
-        shift;
+        shift;ssssssssssssssss
         DOCKERFILE_GENERATED_NAME="$1";
         ;;
        --contvers)
@@ -484,6 +478,14 @@ COPY components/* /tmp/
 EOD
   return 0
 }
+
+###############################################################################
+# Absolute minimum default settings
+###############################################################################
+__CURRENT_DIR="$( \pwd -L )"
+__CLEANUP_FILE="${__CURRENT_DIR}/.cleanup"
+
+add_environment_setting '__ENTRYPOINT_DIR=/usr/local/bin/docker-entries.d'
 
 __read_defaults
 build_image "$@"
