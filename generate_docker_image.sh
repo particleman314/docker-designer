@@ -36,13 +36,13 @@ fi
 BUILD_TYPE=0
 
 UBUNTU_PACKAGES=
-ENV_LOOKUP=
+ENV_SETTINGS=
 
 trap "cleanup; exit 1" SIGINT SIGTERM
 
 __read_defaults()
 {
-  typeset deffile="${__CURRENT_DIR}/.defaults"
+  typeset deffile="${__DEFAULTS_FILE:-${__CURRENT_DIR}/.defaults}"
   [ ! -f "${deffile}" ] && return 0
 
   . "${deffile}"
@@ -90,9 +90,9 @@ add_environment_setting()
   	then
   	  typeset value=
   	  eval "value=\${${envname}}"
-  	  [ -n "${value}" ] && ENV_LOOKUP+=" ${envname}=${value}"
+  	  [ -n "${value}" ] && ENV_SETTINGS+=" ${envname}=${value}"
   	else
-  	  ENV_LOOKUP+=" ${envname}"
+  	  ENV_SETTINGS+=" ${envname}"
   	fi
   done
   return 0
@@ -172,7 +172,7 @@ build_image()
         __record 'INFO' 'Using Ubuntu for docker build...'
         ;;
        --contname)
-        shift;ssssssssssssssss
+        shift;
         DOCKERFILE_GENERATED_NAME="$1";
         ;;
        --contvers)
@@ -181,7 +181,7 @@ build_image()
         ;;
     -e|--env)
         shift;
-        ENV_LOOKUP+=" $1";
+        ENV_SETTINGS+=" $1";
         ;;
     -p|--package)
         shift;
@@ -286,15 +286,6 @@ generate_docker_tag()
     DOCKERFILE_GENERATED_NAME="$( printf "%s\n" "${DOCKERFILE_GENERATED_NAME}" | \sed -e 's#\.##g' )"
   fi
 
-  if [ -z "${DOCKER_CONTAINER_VERSION}" ]
-  then
-    if [ -f "${__CURRENT_DIR}/.defaults" ]
-    then
-      \cat "${__CURRENT_DIR}/.defaults" | \grep -v '__DEFAULT_CONTAINER_VERSION=' > "${__CURRENT_DIR}/.defaults.tmp"
-      printf "%s\n" '1.0' >> "${__CURRENT_DIR}/.defaults.tmp"
-      \mv -f "${__CURRENT_DIR}/.defaults.tmp" "${__CURRENT_DIR}/.defaults"
-    fi
-  fi
   return 0
 }
 
@@ -314,11 +305,8 @@ make_dockerfile()
 
     typeset uppcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
 
-    [ "${BUILD_TYPE}" -eq 2 ] && eval "${uppcomp}_MULTISTAGE=1" || eval "${uppcomp}_MULTISTAGE=0"
-    [ "${BUILD_TYPE}" -eq 4 ] && eval "${uppcomp}_COMPOSITE=1" || eval "${uppcomp}_COMPOSITE=1"
-
     . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${comp}.sh"
-    write_dockerfile_${comp}
+    write_dockerfile_${comp}  # Entry point for main section generation
   done
 
   write_dockerfile_body
@@ -335,7 +323,7 @@ manage_docker_image()
 
   if [ "${RC}" -ne 0 ]
   then
-    printf "%s\n" "[ ERROR ] Requested base image << ${request_image} >> not found in local docker repository!"
+    __record 'ERROR' "Requested base image << ${request_image} >> not found in local docker repository!"
   fi
 
   return "${RC}"
@@ -387,7 +375,7 @@ record_cleanup()
 reorder_by_dependencies()
 {
   typeset known_progs="$1"
-  typeset depfile="${__CURRENT_DIR}/.dependencies"
+  typeset depfile="${__CURRENT_DIR}/dependencies"
 
   if [ ! -f "${depfile}" ]
   then
@@ -465,7 +453,7 @@ write_dockerfile_body()
   done
 
   \cat <<-EOD >> ${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}/Dockerfile
-ENV ${ENV_LOOKUP}
+ENV ${ENV_SETTINGS}
 
 EOD
 
