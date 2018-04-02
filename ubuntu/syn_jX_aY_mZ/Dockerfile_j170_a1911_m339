@@ -1,0 +1,111 @@
+FROM ubuntu:16.04
+#############################################################################
+# Setup arguments used within the Dockerfile for image generation
+##############################################################################
+LABEL vendor='Synopsys' \
+      maintainer='Mike Klusman' \
+      maintainer_email='klusman@synopsys.com'
+
+ENV  __ENTRYPOINT_DIR=/usr/local/bin/docker-entries.d UBUNTU_NAME=xenial UBUNTU_VERSION=16.04
+
+ENV  JAVA_VERSION=1.7.0 JAVA_MAJOR_VERSION=7 JAVA_HOME=/opt/jdk JDK_HOME=/opt/jdk
+
+##############################################################################
+# Install a binary version of requested applications
+##############################################################################
+COPY components/* /tmp/
+
+##############################################################################
+# Begin the installation process
+##############################################################################
+RUN echo "[ INFO  ] Oracle JDK Version = 1.7.0" && sleep 1;\
+    /tmp/install_java.sh; \
+    rm /tmp/install_java.sh
+
+FROM ubuntu:16.04
+##############################################################################
+# Setup arguments used within the Dockerfile for image generation
+##############################################################################
+LABEL vendor='Synopsys' \
+      maintainer='Mike Klusman' \
+      maintainer_email='klusman@synopsys.com'
+
+ENV  __ENTRYPOINT_DIR=/usr/local/bin/docker-entries.d UBUNTU_NAME=xenial UBUNTU_VERSION=16.04
+
+ENV  ANT_VERSION=1.9.11 ANT_HOME=/opt/ant
+
+##############################################################################
+# Install a binary version of requested applications
+##############################################################################
+COPY components/* /tmp/
+
+##############################################################################
+# Begin the installation process
+##############################################################################
+RUN echo "[ INFO  ] Apache-Ant Version = 1.9.11" && sleep 1;\
+    /tmp/install_ant.sh; \
+    rm /tmp/install_ant.sh
+
+FROM ubuntu:16.04
+##############################################################################
+# Setup arguments used within the Dockerfile for image generation
+##############################################################################
+LABEL vendor='Synopsys' \
+      maintainer='Mike Klusman' \
+      maintainer_email='klusman@synopsys.com'
+
+ENV  __ENTRYPOINT_DIR=/usr/local/bin/docker-entries.d UBUNTU_NAME=xenial UBUNTU_VERSION=16.04
+
+ENV  MAVEN_VERSION=3.3.9 M2_HOME=/opt/maven
+
+##############################################################################
+# Install a binary version of requested applications
+##############################################################################
+COPY components/* /tmp/
+
+##############################################################################
+# Begin the installation process
+##############################################################################
+RUN echo "[ INFO  ] Apache-Maven Version = 3.3.9" && sleep 1;\
+    /tmp/install_maven.sh; \
+    rm /tmp/install_maven.sh
+
+FROM ubuntu:16.04
+#############################################################################
+# Setup arguments used within the Dockerfile for image generation
+##############################################################################
+LABEL vendor='Synopsys' \
+      maintainer='Mike Klusman' \
+      maintainer_email='klusman@synopsys.com'
+
+##############################################################################
+# Download base packages for installation
+##############################################################################
+RUN echo "[ INFO  ] Ubuntu Version = 16.04" && sleep 1; \
+    apt-get update; \
+    apt-get install -y  curl wget less vim ssh
+
+ENV  __ENTRYPOINT_DIR=/usr/local/bin/docker-entries.d UBUNTU_NAME=xenial UBUNTU_VERSION=16.04
+ENV  JAVA_VERSION=1.7.0 JAVA_MAJOR_VERSION=7 JAVA_HOME=/opt/jdk JDK_HOME=/opt/jdk
+ENV  ANT_VERSION=1.9.11 ANT_HOME=/opt/ant
+ENV  MAVEN_VERSION=3.3.9 M2_HOME=/opt/maven
+
+COPY --from=0 /opt/oracle-jdk-1.7.0 /opt/oracle-jdk-1.7.0/
+COPY --from=0 /usr/local/bin/docker-entries.d/* /usr/local/bin/docker-entries.d/
+COPY --from=0 /usr/local/bin/synopsys_setup.sh /usr/local/bin/
+
+COPY --from=1 /opt/apache-ant-1.9.11 /opt/apache-ant-1.9.11/
+COPY --from=1 /usr/local/bin/docker-entries.d/* /usr/local/bin/docker-entries.d/
+
+COPY --from=2 /opt/apache-maven-3.3.9 /opt/apache-maven-3.3.9/
+COPY --from=2 /usr/local/bin/docker-entries.d/* /usr/local/bin/docker-entries.d/
+
+RUN ln -s /opt/oracle-jdk-1.7.0/ /opt/jdk; \
+    ln -s /opt/apache-ant-1.9.11 /opt/ant; \
+    ln -s /opt/apache-maven-3.3.9 /opt/maven
+
+##############################################################################
+# Define the entrypoint now for the container
+##############################################################################
+ENTRYPOINT [ "synopsys_setup.sh" ]
+
