@@ -42,7 +42,7 @@ trap "cleanup; exit 1" SIGINT SIGTERM
 
 __read_defaults()
 {
-  typeset deffile="${__DEFAULTS_FILE:-${__CURRENT_DIR}/.defaults}"
+  typeset deffile="${__DEFAULTS_FILE:-${__CURRENT_DIR}/defaults}"
   [ ! -f "${deffile}" ] && return 0
 
   . "${deffile}"
@@ -102,19 +102,30 @@ build_image()
 {
   typeset RC=0
 
-  # Call getopt to validate the provided input. 
-  options=$( getopt -o 'dj:a:m:u:p:e:' --long 'dryrun,dockerdir:,java:,ant:,maven:,ubuntu:packages:contvers:contname:env:multistage,composite' -- "$@" )
+  # Call getopt to validate the provided input.
+  if [ "$( \uname )" == 'Darwin' ]
+  then
+    options=$( getopt 'hdj:a:m:u:p:e:' $* )
+  else
+    options=$( getopt -o 'hdj:a:m:u:p:e:' --long 'help,dryrun,dockerdir:,java:,ant:,maven:,ubuntu:packages:contvers:contname:env:multistage,composite' -- "$@" )
+  fi
   [ $? -eq 0 ] || { 
     __record 'ERROR' 'Incorrect options provided'
     exit 1
   }
 
+  DOCKER_COMPONENTS=0
   UBUNTU_MAPPED=0
 
-  eval set -- "$options"
+  eval set -- "${options}"
   while true
   do
+    echo "$1"
     case "$1" in
+    -h|--help)
+        usage;
+        exit 255;
+        ;;
     -d|--dryrun)
         DOCKER_DRYRUN=1;
         ;;
@@ -194,8 +205,8 @@ build_image()
         BUILD_TYPE=2;
         ;;
        --multistage)
-		BUILD_TYPE=4;
-		;;
+		    BUILD_TYPE=4;
+		    ;;
     --)
         shift
         break
@@ -212,17 +223,19 @@ build_image()
   [ -z "${DOCKER_CONTAINER_VERSION}" ] && \
       DOCKER_CONTAINER_VERSION="${DEFAULT_CONTAINER_VERSION:-${__DEFAULT_CONTAINER_VERSION}}"
 
-  [ "${UBUNTU_MAPPED}" -eq 0 ] && map_ubuntu
+  [ "${UBUNTU_MAPPED}" -eq 0 ] && map_ubuntu && DOCKER_COMPONENT_NAMES+=' OS:ubuntu'
   add_environment_setting "UBUNTU_NAME=${UBUNTU_NAME}" "UBUNTU_VERSION=${UBUNTU_VERSION}"
 
   write_dockerfile
+  RC=$?
+  [ "${RC}" -ne 0 ] && return "${RC}"
 
   if [ -z "${DOCKER_DRYRUN}" ] || [ "${DOCKER_DRYRUN}" -eq 0 ]
   then
     \which docker >/dev/null 2>&1
     if [ $? -eq 0 ]
     then
-      pushd "${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}"
+      pushd "$( \dirname "${DOCKERFILE}" )"
       \docker build --tag ${DOCKERFILE_GENERATED_NAME}:${DOCKER_CONTAINER_VERSION} .
       popd
       RC=$?
@@ -280,37 +293,18 @@ generate_docker_tag()
       eval "pvers=\${${upp}_VERSION}"
       typeset marker="${p:0:1}"
 
-      DOCKERFILE_GENERATED_NAME="${marker}${pvers}"
+      DOCKERFILE_GENERATED_NAME+="_${marker}${pvers}"
     done
 
-    DOCKERFILE_GENERATED_NAME="$( printf "%s\n" "${DOCKERFILE_GENERATED_NAME}" | \sed -e 's#\.##g' )"
+    if [ -n "${DOCKERFILE_GENERATED_NAME}" ]
+    then
+      DOCKERFILE_GENERATED_NAME="$( printf "%s\n" "${DOCKERFILE_GENERATED_NAME}" | \sed -e 's#\.##g' )"
+      DOCKERFILE_GENERATED_NAME="syn${DOCKERFILE_GENERATED_NAME}"
+    fi
   fi
+  
+  [ -z "${DOCKERFILE_GENERATED_NAME}" ] && DOCKERFILE_GENERATED_NAME='syn_ubuntu'
 
-  return 0
-}
-
-make_dockerfile()
-{
-  write_dockerfile_header
-  typeset RC=$?
-  [ "${RC}" -ne 0 ] && return "${RC}"
-
-  typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
-  typeset comp=
-
-  ### Need to handle dependency capability
-  for comp in ${components}
-  do
-    comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
-
-    typeset uppcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
-
-    . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${comp}.sh"
-    write_dockerfile_${comp}  # Entry point for main section generation
-  done
-
-  write_dockerfile_body
-  write_dockerfile_footer
   return 0
 }
 
@@ -323,7 +317,7 @@ manage_docker_image()
 
   if [ "${RC}" -ne 0 ]
   then
-    __record 'ERROR' "Requested base image << ${request_image} >> not found in local docker repository!"
+    __record 'WARN' "Requested base image << ${request_image} >> not found in local docker repository!"
   fi
 
   return "${RC}"
@@ -398,74 +392,80 @@ write_dockerfile()
     return "${RC}"
   fi
 
-  [ -n "${DOCKERFILE_LOCATION}" ] && [ -n "${DOCKERFILE_GENERATED_NAME}" ] && \
-     \mkdir -p "${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}"
-
-  make_dockerfile
-  return $?
-}
-
-write_dockerfile_footer()
-{
-  \cat <<-EOD >> ${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}/Dockerfile
-##############################################################################
-# Define the entrypoint now for the container
-##############################################################################
-ENTRYPOINT [ "synopsys_setup.sh" ]
-EOD
-  return 0
-}
-
-write_dockerfile_header()
-{
-  typeset RC=0
-  printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -q 'ubuntu'
-
-  \cat <<-EOD > ${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}/Dockerfile
-FROM ubuntu:${UBUNTU_VERSION}
-##############################################################################
-# Setup arguments used within the Dockerfile for image generation
-##############################################################################
-LABEL vendor='Synopsys' \\
-      maintainer='Mike Klusman' \\
-      maintainer_email='klusman@synopsys.com'
-
-##############################################################################
-# Download base packages for installation
-##############################################################################
-RUN echo "[ INFO  ] Ubuntu Version = ${UBUNTU_VERSION}" && sleep 1; \\
-    apt-get update; \\
-    apt-get install -y ${UBUNTU_PACKAGES}
-
-EOD
-  return 0
-}
-
-write_dockerfile_body()
-{
   typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
   typeset comp=
 
+  ### Need to handle dependency capability
   for comp in ${components}
   do
-  	comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
-    \cat "${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}/DockerSubcomponent_${comp}" >> "${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}/Dockerfile"
+    comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
+    . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${comp}.sh"
+    write_dockerfile_${comp}
   done
 
-  \cat <<-EOD >> ${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}/Dockerfile
-ENV ${ENV_SETTINGS}
+  typeset os_component="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep  'OS:' )"
+  os_component="$( printf "%s\n" "${os_component}" | \cut -f 2 -d ':' )"
 
-EOD
+  . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${os_component}.sh"
+  write_dockerfile_${os_component}
+  RC=$?
 
-  \cat <<-EOD >> ${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}/Dockerfile
+  return "${RC}"
+}
+
+usage()
+{
+  cat <<-EOH
+Usage : $0 [options]
+
+NOTE: Long options are NOT provided when running under MacOSX
+
+Options :
+  -h | --help           Show this help screen and exit.
+  -d | --dryrun         Build docker file(s) but do NOT initiate docker engine build.
+
+
+  -j | --java <>        Enable Java inclusion into docker image.  Input associated
+                           with this option is the version of the application.
+  -a | --ant <>         Enable Apache-Ant inclusion into docker image.  Input
+                           associated with this option is the version of the
+                           application.
+  -m | --maven <>       Enable Apache-Maven inclusion into docker image.  Input
+                           associated with this option is the version of the
+                           application.
+  -u | --ubuntu <>      Enable Ubuntu server basis for docker image.  Input
+                           associated with this option is either version ID or
+                           code name for Ubuntu
+
+
+       --dockerdir <>   Define toplevel of tree representing docker files
+       --contvers  <>   Container version to associate to docker build
+       --contname  <>   Container repository name for docker build
+  
+  -e | --env <>         Environment setting to include into docker build image.
+  -p | --package <>     Ubuntu package to include into upgrade of basis docker
+                            image.  This option can be used more than once or
+                            multiple packages can be associated per calling
+                            instance (in quotes)
+
+
+       --single         Allow for a single builds for any applications to be made
+                            into separate docker files
+       --composite      Allow for a composite dockerfile for all applications to be
+                            assembled.
+       --multistage     Allow for a multistage dockerfile for all applications to be
+                            assembled.
+EOH
+  return 0
+}
+
+#  \cat <<-EOD >> ${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}/Dockerfile
 ##############################################################################
 # Install a binary version of requested software
 ##############################################################################
-COPY components/* /tmp/
+#COPY components/* /tmp/
 
-EOD
-  return 0
-}
+#EOD
 
 ###############################################################################
 # Absolute minimum default settings
@@ -474,6 +474,7 @@ __CURRENT_DIR="$( \pwd -L )"
 __CLEANUP_FILE="${__CURRENT_DIR}/.cleanup"
 
 add_environment_setting '__ENTRYPOINT_DIR=/usr/local/bin/docker-entries.d'
+DOCKER_IMAGE_ORDER=
 
 __read_defaults
 build_image "$@"
