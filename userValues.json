@@ -1,0 +1,28 @@
+{
+  "default_application_versions": {
+    "GCC_VERSION": "5.4.0"
+  },
+  "applications": {
+    "gcc": {
+      "environ_vars": {
+        "environ_var": [
+        {
+          "name": "GCC_VERSION",
+          "value": "$GCC_VERSION"
+        },
+        {
+          "name": "GCC_HOME",
+          "value": "/opt/gcc-$GCC_VERSION"
+        }
+        ]
+      },
+      "dependent_apps": [],
+      "links": {
+        "link": [
+          "/opt/gcc:$GCC_HOME"
+        ]
+      },
+      "download_url": "http://gcc.gnu.org"
+    }
+  }
+}

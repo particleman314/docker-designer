@@ -1,0 +1,76 @@
+{
+  "docker_directory_toplevel": ".",
+  "docker_container_version": "1.0",
+  "default_application_versions": {
+  	"JAVA_VERSION": "1.7.0",
+  	"ANT_VERSION": "1.9.11",
+  	"MAVEN_VERSION": "3.3.1"
+  },
+  "applications": {
+    "java": {
+      "environ_vars": {
+        "environ_var": [
+        {
+          "name": "JAVA_VERSION",
+          "value": "$JAVA_VERSION"
+        },
+        {
+          "name": "JAVA_HOME",
+          "value": "/opt/oracle-jdk-$JAVA_MAJOR_VERSION"
+        },
+        {
+          "name": "JDK_HOME",
+          "value": "$JAVA_HOME"
+        }
+        ]
+      },
+      "dependent_apps": [],
+      "links": {
+        "link": [
+        	"/opt/jdk-$JAVA_MAJOR_VERSION:$JAVA_HOME",
+      		"/opt/jdk:$JAVA_HOME"
+      	]
+      }
+    },
+    "ant": {
+      "environ_vars": {
+        "environ_var": [
+        {
+          "name": "ANT_VERSION",
+          "value": "$ANT_VERSION"
+        },
+        {
+          "name": "ANT_HOME",
+          "value": "/opt/apache-ant-$ANT_VERSION"
+        }
+        ]
+      },
+      "dependent_apps": [ "java" ],
+      "links": {
+        "link": [
+        	"/opt/apache-ant-$ANT_VERSION:/opt/ant"
+      	]
+      }
+    },
+    "maven": {
+      "environ_vars": {
+        "environ_var": [
+        {
+          "name": "MAVEN_VERSION",
+          "value": "$MAVEN_VERSION"
+        },
+        {
+          "name": "M2_HOME",
+          "value": "/opt/apache-maven-$MAVEN_VERSION"
+        }
+        ]
+      },
+      "dependent_apps": [ "java", "ant" ],
+      "links": {
+        "link": [
+        	"/opt/apache-maven-$MAVEN_VERSION:/opt/maven"
+      	]
+      }
+    }
+  }
+}
