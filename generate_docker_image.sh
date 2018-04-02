@@ -98,6 +98,26 @@ add_environment_setting()
   return 0
 }
 
+add_environment_setting_default()
+{
+  typeset envname=
+  for envname in $@
+  do
+    typeset first="$( printf "%s\n" "${envname}" | \cut -f 1 -d '=' )"
+    typeset second="$( printf "%s\n" "${envname}" | \cut -f 2 -d '=' )"
+
+    if [ "${first}" == "${second}" ]
+    then
+      typeset value=
+      eval "value=\${${envname}}"
+      [ -n "${value}" ] && ENV_UBUNTU+=" ${envname}=${value}"
+    else
+      ENV_UBUNTU+=" ${envname}"
+    fi
+  done
+  return 0  
+}
+
 build_image()
 {
   typeset RC=0
@@ -199,7 +219,7 @@ build_image()
         UBUNTU_PACKAGES+=" $1";
         ;;
        --single)
-        BUILD_TYPE=1;
+        [ "${DOCKER_COMPONENTS}" -le 1 ] && BUILD_TYPE=1;
         ;;
        --composite)
         BUILD_TYPE=2;
@@ -224,7 +244,7 @@ build_image()
       DOCKER_CONTAINER_VERSION="${DEFAULT_CONTAINER_VERSION:-${__DEFAULT_CONTAINER_VERSION}}"
 
   [ "${UBUNTU_MAPPED}" -eq 0 ] && map_ubuntu && DOCKER_COMPONENT_NAMES+=' OS:ubuntu'
-  add_environment_setting "UBUNTU_NAME=${UBUNTU_NAME}" "UBUNTU_VERSION=${UBUNTU_VERSION}"
+  add_environment_setting_default "UBUNTU_NAME=${UBUNTU_NAME}" "UBUNTU_VERSION=${UBUNTU_VERSION}"
 
   write_dockerfile
   RC=$?
@@ -279,6 +299,10 @@ generate_docker_tag()
       then
         DOCKERFILE_GENERATED_NAME='syn_ubuntu'
       else
+        typeset upprogs="$( printf "%s\n" "${progs}" | \tr '[:lower:]' '[:upper:]' )"
+        typeset version=
+        eval "version=\${${upprogs}_VERSION}"
+        DOCKER_CONTAINER_VERSION="${version}"
         DOCKERFILE_GENERATED_NAME="syn_${progs}"
       fi
       return 0
@@ -288,7 +312,6 @@ generate_docker_tag()
     for p in ${progs}
     do
       typeset upp="$( printf "%s\n" "${p}" | \tr '[:lower:]' '[:upper:]' )"
-
       typeset pvers=
       eval "pvers=\${${upp}_VERSION}"
       typeset marker="${p:0:1}"
@@ -302,9 +325,8 @@ generate_docker_tag()
       DOCKERFILE_GENERATED_NAME="syn${DOCKERFILE_GENERATED_NAME}"
     fi
   fi
-  
-  [ -z "${DOCKERFILE_GENERATED_NAME}" ] && DOCKERFILE_GENERATED_NAME='syn_ubuntu'
 
+  [ -z "${DOCKERFILE_GENERATED_NAME}" ] && DOCKERFILE_GENERATED_NAME='syn_ubuntu'
   return 0
 }
 
@@ -394,20 +416,27 @@ write_dockerfile()
 
   typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
   typeset comp=
+  typeset version=
 
-  ### Need to handle dependency capability
   for comp in ${components}
   do
     comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
     . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${comp}.sh"
-    write_dockerfile_${comp}
+
+    if [ "${BUILD_TYPE}" -eq 1 ]
+    then
+      typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
+      eval "version=\${${upcomp}_VERSION}"
+    fi
+
+    write_dockerfile_${comp} "${version}"
   done
 
   typeset os_component="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep  'OS:' )"
   os_component="$( printf "%s\n" "${os_component}" | \cut -f 2 -d ':' )"
 
   . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${os_component}.sh"
-  write_dockerfile_${os_component}
+  write_dockerfile_${os_component} "${version}"
   RC=$?
 
   return "${RC}"
@@ -473,7 +502,7 @@ EOH
 __CURRENT_DIR="$( \pwd -L )"
 __CLEANUP_FILE="${__CURRENT_DIR}/.cleanup"
 
-add_environment_setting '__ENTRYPOINT_DIR=/usr/local/bin/docker-entries.d'
+add_environment_setting_default '__ENTRYPOINT_DIR=/usr/local/bin/docker-entries.d'
 DOCKER_IMAGE_ORDER=
 
 __read_defaults

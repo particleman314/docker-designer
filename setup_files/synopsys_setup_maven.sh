@@ -38,8 +38,8 @@ then
   else
   	\which 'ant' >/dev/null 2>&1
 
-  	[ $? -ne 0 ] && [ -f '/usr/local/bin/docker_entries.d/synopsys_setup_ant.sh' ] && \
-  	   . '/usr/local/bin/docker_entries.d/synopsys_setup_ant.sh'
+  	[ $? -ne 0 ] && [ -f "${__ENTRYPOINT_DIR}/synopsys_setup_ant.sh" ] && \
+  	   . "${__ENTRYPOINT_DIR}/synopsys_setup_ant.sh"
   	   
     if [ -n "${M2_HOME}" ]
     then

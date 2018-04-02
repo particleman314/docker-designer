@@ -110,7 +110,7 @@ unpack_tarball()
 {
   typeset binfile="$1"
 
-  \tar -zxvf "${binfile}" >&2
+  \tar -zxvf "${binfile}" >/dev/null 2>&1
   \rm -f "${binfile}"
 
   typeset bindir="$( \find . -type d -maxdepth 1 -name "apache-maven*" -exec \basename "{}" \; )"

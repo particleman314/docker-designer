@@ -38,8 +38,8 @@ then
   else
   	\which 'java' >/dev/null 2>&1
 
-  	[ $? -ne 0 ] && [ -f '/usr/local/bin/docker_entries.d/synopsys_setup_java.sh' ] && \
-  	   . '/usr/local/bin/docker_entries.d/synopsys_setup_java.sh'
+  	[ $? -ne 0 ] && [ -f "${__ENTRYPOINT_DIR}/synopsys_setup_java.sh" ] && \
+  	   . "${__ENTRYPOINT_DIR}/synopsys_setup_java.sh"
   	   
     if [ -n "${ANT_HOME}" ]
     then

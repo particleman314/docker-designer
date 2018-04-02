@@ -36,48 +36,6 @@ fi
 __IMAGE_BINARY_DIR="${__CURRENT_DIR}/${__DEFAULT_JAVA_BINARY_STORE}"
 __SOFTWARE='Oracle-JDK'
 
-build_java_image()
-{
-  if [ "${BUILD_TYPE}" -eq 1 ]
-  then
-    __TOP_LEVEL="$( \dirname "${__CURRENT_DIR}" )"
-    __CLEANUP_FILE="${__TOP_LEVEL}/.cleanup"
-  else
-    __TOP_LEVEL="${__CURRENT_DIR}"
-  fi
-
-  typeset RC=0
-
-  if [ ! -d "${__TOP_LEVEL}/java" ]
-  then
-    printf "%s\n" "[ ERROR ] Wrong level to generate ${__SOFTWARE} docker image"
-    return 1
-  fi
-
-  pushd "${__TOP_LEVEL}" >/dev/null 2>&1
-
-  prepare_docker_contents
-  RC=$?
-  [ "${RC}" -ne 0 ] && return "${RC}"
-
-  typeset DOCKER_DEPENDENT_TAG="${__DOCKER_DEPENDENT_TAG:-syn_ubuntu:16.04}"
-  typeset DOCKER_GENERATE_TAG="syn_java_ubu1604:${JAVA_VERSION}"
-
-  manage_docker_image "${DOCKER_DEPENDENT_TAG}"
-  RC=$?
-  [ "${RC}" -ne 0 ] && return "${RC}"
-
-  popd >/dev/null 2>&1
-
-  \docker build --tag "${DOCKER_GENERATE_TAG}" .
-  RC=$?
-
-  [ "${RC}" -ne 0 ] && printf "%s\n" "[ ERROR ] Problem with generation of docker image of ${__SOFTWARE} to be tagged --> ${DOCKER_GENERATE_TAG}"
-
-  cleanup
-  return "${RC}"
-}
-
 check_java_settings()
 {
   JAVA_VERSION="${JAVA_VERSION:-${__DEFAULT_JAVA_VERSION}}"
@@ -91,30 +49,6 @@ check_java_settings()
   JAVA_MAJOR_VERSION="${JAVA_MAJOR_VERSION}"
   [ -z "${JAVA_MAJOR_VERSION}" ] && JAVA_MAJOR_VERSION="$( printf "%s\n" "${JAVA_VERSION}" | \cut -f 2 -d '.' )"
   return 0
-}
-
-manage_docker_image()
-{
-  typeset request_image="$1"
-
-  \docker images --format "{{.Repository}}:{{.Tag}}" | \grep -q "${request_image}"
-  typeset RC=$?
-
-  [ "${RC}" -ne 0 ] && __record 'ERROR' "Requested base image << ${request_image} >> not found in local docker repository!"
-
-  return "${RC}"
-}
-
-prepare_java_content()
-{
-  check_java_settings
-  [ $? -ne 0 ] && return 1
-
-  \mkdir -p "${__CURRENT_DIR}/java"
-
-  prepare_docker_contents
-  RC=$?
-  return "${RC}"
 }
 
 prepare_docker_contents()
@@ -161,41 +95,41 @@ prepare_docker_contents()
   \cp -f "${__CURRENT_DIR}/setup_files/synopsys_setup.sh" "${OUTPUT_DIR}/components"
   record_cleanup "${OUTPUT_DIR}/components/synopsys_setup.sh"
 
-  [ "${JAVA_COMPOSITE}" -eq 0 ] && [ "${JAVA_MULTISTAGE}" -eq 0 ] && cleanup
-
   return "${RC}"
-}
-
-copy_components()
-{
-  typeset outputfile="$1"
-  \cat <<-EOD >> "${outputfile}"
-##############################################################################
-# Install a binary version of JDK ${JAVA_VERSION}
-##############################################################################
-COPY components/* /tmp/
-
-EOD
-  return 0
 }
 
 write_dockerfile_java()
 {
+  typeset version="$1"
   typeset outputfile=
+  typeset RC=0
+
+  check_java_settings
+  RC=$?
+  [ "${RC}" -ne 0 ] && return "${RC}"
 
   if [ "${BUILD_TYPE}" -eq 1 ]
   then
-    typeset OUTPUT_DIR="${DOCKERFILE_LOCATION}/java/${DOCKERFILE_GENERATED_NAME}"
-    outputfile="${OUTPUT_DIR}/Dockerfile"
-    build_java_image "${outputfile}"
-    return $?
-  else
-    typeset OUTPUT_DIR="${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}"
-    outputfile="${OUTPUT_DIR}/DockerSubcomponent_java"
-    \rm -f "${outputfile}"
-  fi
+    OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}"
+    \mkdir -p "${OUTPUT_DIR}"
 
-  \cat <<-EOD >> "${outputfile}"
+    write_dockerfile_body "${OUTPUT_DIR}/DockerSubcomponent_java"
+    prepare_docker_contents
+    RC=$?
+
+    unset __SOFTWARE
+    unset __IMAGE_BINARY_DIR
+    unset OUTPUT_DIR
+    unset write_dockerfile_body
+  fi
+  return "${RC}"
+}
+
+write_dockerfile_body()
+{
+  typeset dckfl="$1"
+
+  \cat <<-EOD >> "${dckfl}"
 ##############################################################################
 # Begin the installation process
 ##############################################################################
@@ -204,15 +138,5 @@ RUN echo "[ INFO  ] Oracle JDK Version = ${JAVA_VERSION}" && sleep 1;\\
     rm /tmp/install_java.sh
 
 EOD
-
-  prepare_java_content
-
-  unset prepare_docker_contents
-  unset prepare_java_content
-
-  unset __SOFTWARE
-  unset __IMAGE_BINARY_DIR
-  unset OUTPUT_DIR
-
-  return $?
+  return 0
 }

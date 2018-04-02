@@ -33,7 +33,76 @@ else
   export ENABLE_DETAILS
 fi
 
-__SOFTWARE='Ubuntu OS'
+__record_addon_variables()
+{
+  typeset filename="$1"
+  \cat <<-EOD >> "${filename}"
+ENV ${ENV_SETTINGS}
+
+EOD
+  return 0
+}
+
+__record_components()
+{
+  typeset filename="$1"
+  \cat <<-EOD >> "${filename}"
+##############################################################################
+# Install a binary version of requested applications
+##############################################################################
+COPY components/* /tmp/
+
+EOD
+  return 0
+}
+
+__record_copyfrom()
+{
+  typeset filename="$1"
+  typeset subimage_id="$2"
+  typeset home="$3"
+
+  \cat <<-EOD >> "${filename}"
+COPY --from=${subimage_id} ${home} /opt/
+EOD
+  return 0
+}
+__record_footer()
+{
+  typeset filename="$1"
+  \cat <<-EOD >> "${filename}"
+##############################################################################
+# Define the entrypoint now for the container
+##############################################################################
+ENTRYPOINT [ "synopsys_setup.sh" ]
+EOD
+  return 0
+}
+
+__record_header()
+{
+  typeset filename="$1"
+  \cat <<-EOD >> "${filename}"
+FROM ubuntu:${UBUNTU_VERSION}
+##############################################################################
+# Setup arguments used within the Dockerfile for image generation
+##############################################################################
+LABEL vendor='Synopsys' \\
+      maintainer='Mike Klusman' \\
+      maintainer_email='klusman@synopsys.com'
+
+##############################################################################
+# Download base packages for installation
+##############################################################################
+RUN echo "[ INFO  ] Ubuntu Version = ${UBUNTU_VERSION}" && sleep 1; \\
+    apt-get update; \\
+    apt-get install -y ${UBUNTU_PACKAGES}
+
+ENV ${ENV_UBUNTU}
+
+EOD
+  return 0
+}
 
 prepare_docker_contents()
 {
@@ -53,108 +122,72 @@ prepare_docker_contents()
   ### If SINGLE or COMPOSITE BUILD (single image created)
   if [ "${BUILD_TYPE}" -eq 1 ] || [ "${BUILD_TYPE}" -eq 2 ]
   then
-    \cat <<-EOD >> "${filename}"
-FROM ubuntu:${UBUNTU_VERSION}
-##############################################################################
-# Setup arguments used within the Dockerfile for image generation
-##############################################################################
-LABEL vendor='Synopsys' \\
-      maintainer='Mike Klusman' \\
-      maintainer_email='klusman@synopsys.com'
+    __record_header "${filename}"
+    [ -n "${ENV_SETTINGS}" ] && __record_addon_variables "${filename}"
+    [ "${DOCKER_COMPONENTS}" -ge 1 ] && __record_components "${filename}"
 
-##############################################################################
-# Download base packages for installation
-##############################################################################
-RUN echo "[ INFO  ] Ubuntu Version = ${UBUNTU_VERSION}" && sleep 1; \\
-    apt-get update; \\
-    apt-get install -y ${UBUNTU_PACKAGES}
+    typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
+    typeset comp=
 
-EOD
-    if [ "${DOCKER_COMPONENTS}" -ge 1 ]
-    then
-      \cat <<-EOD >> "${filename}"
-##############################################################################
-# Install a binary version of requested applications
-##############################################################################
-COPY components/* /tmp/
+    for comp in ${components}
+    do
+      comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
+      typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
 
-EOD
-    fi
-
-    if [ "${BUILD_TYPE}" -eq 2 ]
-    then
-
-      \cat <<-EOD >> "${filename}"
-ENV ${ENV_SETTINGS}
-
-EOD
-      typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
-      typeset comp=
-
-      for comp in ${components}
-      do
-        comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
-        typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
-
-        typeset version=
-        eval "version=\${${upcomp}_VERSION}"
-
-        \cat "${DOCKERFILE_LOCATION}/${comp}/${version}/DockerSubcomponent_${comp}" >> "${outputfile}"
-      done
-    fi
+      typeset version=
+      eval "version=\${${upcomp}_VERSION}"
+      \cat "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/DockerSubcomponent_${comp}" >> "${filename}"
+      \rm -f "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/DockerSubcomponent_${comp}"
+    done
   else
-    \cat <<-EOD >> "${filename}"
-FROM ubuntu:${UBUNTU_VERSION}
-##############################################################################
-# Setup arguments used within the Dockerfile for image generation
-##############################################################################
-LABEL vendor='Synopsys' \\
-      maintainer='Mike Klusman' \\
-      maintainer_email='klusman@synopsys.com'
+    typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
+    typeset comp=
 
-##############################################################################
-# Download base packages for installation
-##############################################################################
-RUN echo "[ INFO  ] Ubuntu Version = ${UBUNTU_VERSION}" && sleep 1; \\
-    apt-get update; \\
-    apt-get install -y ${UBUNTU_PACKAGES}
+    for comp in ${components}
+    do
+      comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
+      typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
 
-EOD
+      typeset version=
+      eval "version=\${${upcomp}_VERSION}"
+      \cat "${DOCKERFILE_LOCATION}/${comp}/${DOCKERFILE_GENERATED_NAME}/Dockerfile" >> "${filename}"
+      \rm -f "${DOCKERFILE_LOCATION}/${comp}/${DOCKERFILE_GENERATED_NAME}/Dockerfile"
+    done
 
-  typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
-  typeset comp=
+    __record_header "${filename}"
 
-  ### Need to handle dependency capability
-  for comp in ${components}
-  do
-    comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
-    typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
+    typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep 'OS:' )"
 
-    typeset home=
-    eval "home=\${${upcomp}_HOME}"
-    typeset subimage_id="$( printf "%s\n" ${DOCKER_SUBIMAGE_MAPPING} | \grep "^${comp}" | \cut -f 2 -d ':' )"
+    if [ -n "${components}" ]
+    then
+      typeset comp="$( printf "%s\n" "${components}" | \cut -f 2 -d ':' )"
+      typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
 
-    \cat <<-EOD >> "${filename}"
-COPY --from=${subimage_id} ${home} /opt/
-EOD
-  done
+      typeset home=
+      eval "home=\${${upcomp}_HOME}"
+      typeset subimage_id="$( printf "%s\n" ${DOCKER_SUBIMAGE_MAPPING} | \grep "^${comp}" | \cut -f 2 -d ':' )"
 
-  \cat <<-EOD >> "${filename}"
-##############################################################################
-# Define the entrypoint now for the container
-##############################################################################
-ENTRYPOINT [ "synopsys_setup.sh" ]
-EOD
-
+      __record_copyfrom "${filename}" "${subimage_id}" "${home}"
+    fi
   fi
+
+  [ "${DOCKER_COMPONENTS}" -ge 1 ] && __record_footer "${filename}"
+
   return "${RC}"
 }
 
 write_dockerfile_ubuntu()
 {
   typeset RC=0
+  typeset version="$1"
 
-  typeset OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}"
+  typeset OUTPUT_DIR=
+  if [ "${BUILD_TYPE}" -eq 1 ]
+  then
+    OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}"
+  else
+    OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}"
+  fi
   \mkdir -p "${OUTPUT_DIR}"
   typeset outputfile="${OUTPUT_DIR}/Dockerfile"
   \rm -f "${outputfile}"

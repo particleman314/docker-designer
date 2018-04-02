@@ -93,16 +93,19 @@ run_install()
 
   \mkdir -p "${target_installation_dir}"
 
-  [ -z "${bindir}" ] && bindir="$( \find . -type f -name "jdk-${JAVA_MAJOR_VERSION}*" -maxdepth 1 -exec \basename "{}" \; )"
+  [ -z "${bindir}" ] && bindir="$( \find . -maxdepth 1 -type f -name "jdk-${JAVA_MAJOR_VERSION}*" -exec \basename "{}" \; )"
 
   if [ -f "${bindir}" ]
   then
     ./"${bindir}"
     \rm -f "${bindir}"
-    bindir="$( \find . -type d -name "jdk*${JAVA_VERSION}*" -maxdepth 1 -exec \basename "{}" \; )"
+    bindir="$( \find . -maxdepth 1 -type d -name "jdk*${JAVA_VERSION}*" -exec \basename "{}" \; )"
     [ -z "${bindir}" ] && return 1
     \rm -f "${bindir}/src.zip"
   fi
+
+  [ -z "${bindir}" ] && bindir="$( \find . -maxdepth 1 -type d -name "jdk*${JAVA_MAJOR_VERSION}*" -exec \basename "{}" \; )"
+  [ -z "${bindir}" ] && return 1
 
   \mv -f "${bindir}"/* "${target_installation_dir}"
   \rm -rf "${bindir}"
@@ -125,10 +128,10 @@ unpack_tarball()
 {
   typeset binfile="$1"
 
-  \tar -zxvf "${binfile}" >&2
+  \tar -zxvf "${binfile}" >/dev/null 2>&1
   \rm -f "${binfile}"
 
-  typeset bindir="$( \find . -type d -maxdepth 1 -name "jdk*${JAVA_VERSION}*" -exec \basename "{}" \; )"
+  typeset bindir="$( \find . -maxdepth 1 -type d -name "jdk*${JAVA_VERSION}*" -exec \basename "{}" \; )"
 
   printf "%s\n" "${bindir}"
   return 0
@@ -136,7 +139,7 @@ unpack_tarball()
 
 verify_bin()
 {
-  typeset binfile="$( \find . -type f -maxdepth 1 -name "jdk-${JAVA_MAJOR_VERSION}*.tar.gz" -exec \basename "{}" \; )"
+  typeset binfile="$( \find . -maxdepth 1 -type f -name "jdk-${JAVA_MAJOR_VERSION}*.tar.gz" -exec \basename "{}" \; )"
 
   if [ -z "${binfile}" ]
   then
