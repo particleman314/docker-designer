@@ -138,7 +138,7 @@ write_dockerfile_java()
     write_dockerfile_body "${outputfile}"
 
     prepare_docker_contents "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${UBUNTU_VERSION}"
-
+    RC=$?
     printf "\n%s\n\n" "### --------------------------------------------- ###" >> "${outputfile}"
   fi
 

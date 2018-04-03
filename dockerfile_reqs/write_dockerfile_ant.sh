@@ -70,7 +70,15 @@ prepare_docker_contents()
     \sleep 1
 
     typeset download_filename="${antfile}"
-    \curl -Lk "https://archive.apache.org/dist/ant/binaries/${download_filename}" -o "${__IMAGE_BINARY_DIR}/${download_filename}"
+    \curl -sI "https://archive.apache.org/dist/ant/binaries/${download_filename}" | \grep HTTP | \grep -q 200
+    if [ $? -eq 0 ]
+    then
+      \curl -sLk "https://archive.apache.org/dist/ant/binaries/${download_filename}" -o "${__IMAGE_BINARY_DIR}/${download_filename}"
+    else
+      __record 'ERROR' "Cannot find necessary component file for installation of ${__SOFTWARE} ${ANT_VERSION}"
+      RC=1
+      return "${RC}"
+    fi
     more_tries=$(( more_tries - 1 ))
   done
 
@@ -135,7 +143,7 @@ write_dockerfile_ant()
     write_dockerfile_body "${outputfile}"
 
     prepare_docker_contents "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${UBUNTU_VERSION}"
-
+    RC=$?
     printf "\n%s\n\n" "### --------------------------------------------- ###" >> "${outputfile}"
   fi
 

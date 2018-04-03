@@ -269,7 +269,6 @@ cleanup()
 {
   if [ -f "${__CLEANUP_FILE}" ]
   then
-    \cat "${__CLEANUP_FILE}"
     typeset line=
     while read -r line
     do
@@ -423,11 +422,16 @@ write_dockerfile()
   do
     comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
     . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${comp}.sh"
+    RC=$?
+
+    [ "${RC}" -ne 0 ] && return "${RC}"
 
     typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
     eval "version=\${${upcomp}_VERSION}"
  
     write_dockerfile_${comp} "${version}"
+    RC=$?
+    [ "${RC}" -ne 0 ] && return "${RC}"
   done
 
   typeset os_component="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep  'OS:' )"
