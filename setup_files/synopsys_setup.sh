@@ -60,7 +60,8 @@ then
     __line=
     while read -r __line
     do
-      __setupfiles+=" synopsys_setup_${__line}.sh"
+      __prog="$( printf "%s\n" "${__line}" | \cut -f 1 -d ':' )"
+      __setupfiles+=" synopsys_setup_${prog}.sh"
     done < 'dependency.dat'
   else
     __setupfiles="$( \find . -type f -name "synopsys_setup*.sh" )"

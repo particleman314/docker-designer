@@ -25,9 +25,16 @@
 #
 ###############################################################################
 
-JAVA_VERSION="$( printf "%s\n" "$1" | \cut -f 1 -d ':' )"
+if [ "$1" == 'default' ]
+then
+  __input="${__DEFAULT_JAVA_VERSION}:${__DEFAULT_JAVA_HOME}"
+else
+  __input="$1"
+fi
+
+JAVA_VERSION="$( printf "%s\n" "${__input}" | \cut -f 1 -d ':' )"
 JAVA_MAJOR_VERSION="$( printf "%s\n" "${JAVA_VERSION}" | \cut -f 2 -d '.' )"
-JAVA_HOME="$( printf "%s\n" "$1" | \cut -f 2 -d ':' )"
+JAVA_HOME="$( printf "%s\n" "${__input}" | \cut -f 2 -d ':' )"
 [ "${JAVA_HOME}" == "${JAVA_VERSION}" ] && JAVA_HOME="${__DEFAULT_JAVA_HOME}"
 JDK_HOME="${JAVA_HOME}"
 

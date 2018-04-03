@@ -35,6 +35,7 @@ fi
 
 BUILD_TYPE=0
 CURRENT_IMAGE_ID=0
+SKIP_CLEAN=0
 
 UBUNTU_PACKAGES=
 ENV_SETTINGS=
@@ -127,9 +128,9 @@ build_image()
   # Call getopt to validate the provided input.
   if [ "$( \uname )" == 'Darwin' ]
   then
-    options=$( getopt 'hdj:a:m:u:p:e:xyzr:v:n:' $* )
+    options=$( getopt 'hdj::a::m::u::p:e:sxyzr:v:n:' $* )
   else
-    options=$( getopt -o 'hdj:a:m:u:p:e:r:v:n:' --long 'help,dryrun,dockerdir:,java:,ant:,maven:,ubuntu:packages:contvers:contname:env:multistage,composite' -- "$@" )
+    options=$( getopt -o 'hdxyzsj::a::m::u::p:e:r:v:n:' --long 'skipclean,help,dryrun,dockerdir:,java::,ant::,maven::,ubuntu::packages:contvers:contname:env:single,multistage,composite' -- "$@" )
   fi
   [ $? -eq 0 ] || { 
     __record 'ERROR' 'Incorrect options provided'
@@ -138,6 +139,8 @@ build_image()
 
   DOCKER_COMPONENTS=0
   UBUNTU_MAPPED=0
+
+  typeset pusharg=
 
   eval set -- "${options}"
   while true
@@ -158,11 +161,13 @@ build_image()
         shift;
         if [ -f 'lib/java_handler.sh' ];
         then
-          . 'lib/java_handler.sh';
+          [ -z "$1" ] && pusharg='default' || pusharg="$1"
+          . 'lib/java_handler.sh' "${pusharg}";
+
           DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
           DOCKER_COMPONENT_NAMES+=' PROG:java';
 
-          __record 'INFO' 'Adding Java for docker build...';
+          __record 'INFO' "Adding Java for docker build ( ${JAVA_VERSION} )...";
         else
           __record 'ERROR' 'Cannot find JAVA handler library!';
         fi;
@@ -171,11 +176,13 @@ build_image()
         shift;
         if [ -f 'lib/ant_handler.sh' ];
         then
-          . 'lib/ant_handler.sh';
+          [ -z "$1" ] && pusharg='default' || pusharg="$1"
+          . 'lib/ant_handler.sh' "${pusharg}";
+
           DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
           DOCKER_COMPONENT_NAMES+=' PROG:ant';
 
-          __record 'INFO' 'Adding Apache-Ant for docker build...';
+          __record 'INFO' "Adding Apache-Ant for docker build ( ${ANT_VERSION} )...";
         else
           __record 'ERROR' 'Cannot find Apache-Ant handler library!';
         fi;
@@ -184,24 +191,28 @@ build_image()
         shift;
         if [ -f 'lib/maven_handler.sh' ];
         then
-          . 'lib/maven_handler.sh';
+          [ -z "$1" ] && pusharg='default' || pusharg="$1"
+          . 'lib/maven_handler.sh' "${pusharg}";
         
           DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
           DOCKER_COMPONENT_NAMES+=' PROG:maven';
 
-          __record 'INFO' 'Adding Apache-Maven for docker build...';
+          __record 'INFO' "Adding Apache-Maven for docker build ( ${MAVEN_VERSION} )...";
         else
           __record 'ERROR' 'Cannot find Apache-Maven handler library!';
         fi;
         ;;
     -u|--ubuntu)
         shift;
-        typeset result="$( \awk -v a="$1" 'BEGIN {print (a == a + 0)}' )";
+        [ -z "$1" ] && pusharg="${__DEFAULT_UBUNTU_VERSION}" || pusharg="$1"
+
+        typeset result="$( \awk -v a="${pusharg}" 'BEGIN {print (a == a + 0)}' )";
+
         [ ${result} -eq 0 ] && UBUNTU_NAME="$1";
         [ ${result} -eq 1 ] && UBUNTU_VERSION="$1";
         map_ubuntu;
         DOCKER_COMPONENT_NAMES+=' OS:ubuntu';
-        __record 'INFO' 'Using Ubuntu for docker build...'
+        __record 'INFO' "Using Ubuntu for docker build ( ${UBUNTU_VERSION} -- ${UBUNTU_NAME} )..."
         ;;
     -n|--contname)
         shift;
@@ -226,8 +237,11 @@ build_image()
         BUILD_TYPE=2;
         ;;
     -z|--multistage)
-		    BUILD_TYPE=4;
-		    ;;
+	    BUILD_TYPE=4;
+		;;
+	-s|--skipclean)
+        SKIP_CLEAN=1;
+        ;;
     --)
         shift
         break
@@ -250,6 +264,8 @@ build_image()
   write_dockerfile
   RC=$?
   [ "${RC}" -ne 0 ] && return "${RC}"
+
+  __record 'INFO' "Dockerfile generated at location --> $( \dirname "${DOCKERFILE}" )"
 
   if [ -z "${DOCKER_DRYRUN}" ] || [ "${DOCKER_DRYRUN}" -eq 0 ]
   then
@@ -277,6 +293,8 @@ build_image()
 
 cleanup()
 {
+  [ "${SKIP_CLEAN}" -eq 1 ] && return 0
+
   if [ -f "${__CLEANUP_FILE}" ]
   then
     typeset line=
@@ -292,7 +310,13 @@ cleanup()
 
 generate_docker_tag()
 {
-  [ -n "${DOCKERFILE_GENERATED_NAME}" ] && [ -n "${DOCKER_CONTAINER_VERSION}" ] && return 0
+  if [ -n "${DOCKERFILE_GENERATED_NAME}" ] && [ -n "${DOCKER_CONTAINER_VERSION}" ]
+  then
+    ### Order from commandline -- Need to reorder and handle dependencies
+    typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
+    [ -n "${components}" ] && printf "%s\n" "${components}"
+    return 0
+  fi
 
   if [ -z "${DOCKERFILE_GENERATED_NAME}" ]
   then
@@ -315,6 +339,7 @@ generate_docker_tag()
         DOCKER_CONTAINER_VERSION="${version}"
         DOCKERFILE_GENERATED_NAME="syn_${progs}"
       fi
+      printf "${progs}"
       return 0
     fi
 
@@ -334,9 +359,16 @@ generate_docker_tag()
       DOCKERFILE_GENERATED_NAME="$( printf "%s\n" "${DOCKERFILE_GENERATED_NAME}" | \sed -e 's#\.##g' )"
       DOCKERFILE_GENERATED_NAME="syn${DOCKERFILE_GENERATED_NAME}"
     fi
+
+    printf "%s\n" "${progs}"
   fi
 
-  [ -z "${DOCKERFILE_GENERATED_NAME}" ] && DOCKERFILE_GENERATED_NAME='syn_ubuntu'
+  if [ -z "${DOCKERFILE_GENERATED_NAME}" ]
+  then
+    typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
+    [ -n "${components}" ] && printf "%s\n" "${components}"
+    DOCKERFILE_GENERATED_NAME='syn_ubuntu'
+  fi
   return 0
 }
 
@@ -401,14 +433,9 @@ record_cleanup()
 reorder_by_dependencies()
 {
   typeset known_progs="$1"
-  typeset depfile="${__CURRENT_DIR}/dependencies"
+  typeset depfile="${__CURRENT_DIR}/setup_files/dependency.dat"
 
-  if [ ! -f "${depfile}" ]
-  then
-    printf "%s\n" "${known_progs}"
-    return 0
-  fi
-
+  printf "%s\n" "${known_progs}"
   return 0
 }
 
@@ -416,19 +443,22 @@ write_dockerfile()
 {
   typeset RC=0
 
-  generate_docker_tag
+  generate_docker_tag > "${__CURRENT_DIR}/.tempoutput"
   RC=$?
   if [ "${RC}" -ne 0 ]
   then
     __record 'ERROR' 'Unable to generate repository name for requested Docker container!'
+    \rm -f "${__CURRENT_DIR}/.tempoutput"
     return "${RC}"
   fi
 
-  typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
+  typeset ordered_components="$( \cat "${__CURRENT_DIR}/.tempoutput" )"
+  \rm -f "${__CURRENT_DIR}/.tempoutput"
+
   typeset comp=
   typeset version=
 
-  for comp in ${components}
+  for comp in ${ordered_components}
   do
     comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
     . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${comp}.sh"
@@ -444,15 +474,18 @@ write_dockerfile()
     [ "${RC}" -ne 0 ] && return "${RC}"
   done
 
-  typeset os_component="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep  'OS:' )"
-  os_component="$( printf "%s\n" "${os_component}" | \cut -f 2 -d ':' )"
+  if [ "${BUILD_TYPE}" -eq 3 ]
+  then
+    typeset os_component="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep  'OS:' )"
+    os_component="$( printf "%s\n" "${os_component}" | \cut -f 2 -d ':' )"
 
-  . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${os_component}.sh"
-  typeset upcomp="$( printf "%s\n" "${os_component}" | \tr '[:lower:]' '[:upper:]' )"
+    . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${os_component}.sh"
+    typeset upcomp="$( printf "%s\n" "${os_component}" | \tr '[:lower:]' '[:upper:]' )"
 
-  eval "version=\${${upcomp}_VERSION}"
-  write_dockerfile_${os_component} "${version}"
-  RC=$?
+    eval "version=\${${upcomp}_VERSION}"
+    write_dockerfile_${os_component} "${version}"
+    RC=$?
+  fi
 
   return "${RC}"
 }
@@ -467,7 +500,7 @@ NOTE: Long options are NOT provided when running under MacOSX
 Options :
   -h | --help           Show this help screen and exit.
   -d | --dryrun         Build docker file(s) but do NOT initiate docker engine build.
-
+  -s | --skipclean      Skip cleaning up once script ends.
 
   -j | --java <>        Enable Java inclusion into docker image.  Input associated
                            with this option is the version of the application.

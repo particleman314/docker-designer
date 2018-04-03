@@ -25,10 +25,16 @@
 #
 ###############################################################################
 
-MAVEN_VERSION="$( printf "%s\n" "$1" | \cut -f 1 -d ':' )"
-M2_HOME="$( printf "%s\n" "$1" | \cut -f 2 -d ':' )"
+if [ "$1" == 'default' ]
+then
+  __input="${__DEFAULT_MAVEN_VERSION}:${__DEFAULT_MAVEN_HOME}"
+else
+  __input="$1"
+fi
+
+MAVEN_VERSION="$( printf "%s\n" "${__input}" | \cut -f 1 -d ':' )"
+M2_HOME="$( printf "%s\n" "${__input}" | \cut -f 2 -d ':' )"
 [ "${M2_HOME}" == "${MAVEN_VERSION}" ] && M2_HOME="${__DEFAULT_MAVEN_HOME}"
 
 ENV_SETTINGS_MAVEN='MAVEN_VERSION M2_HOME'
-
 add_environment_setting 'MAVEN_VERSION' 'M2_HOME'
