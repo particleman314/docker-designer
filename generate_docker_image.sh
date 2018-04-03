@@ -21,7 +21,7 @@
 ## @Software Package : Docker Image Generator
 ## @Application      : Docker Release Engineering
 ## @Language         : Bourne Shell
-## @Version          : 0.56
+## @Version          : 0.90
 #
 ###############################################################################
 
@@ -258,6 +258,16 @@ build_image()
     then
       pushd "$( \dirname "${DOCKERFILE}" )" >/dev/null 2>&1
       \docker build --tag ${DOCKERFILE_GENERATED_NAME}:${DOCKER_CONTAINER_VERSION} .
+      if [ $? -eq 0 ]
+      then
+        __record 'INFO' 'Providing image from docker for upload/distribution...'
+        \docker save --output "${DOCKERFILE_GENERATED_NAME}-${DOCKER_CONTAINER_VERSION}.tar" ${DOCKERFILE_GENERATED_NAME}:${DOCKER_CONTAINER_VERSION}
+        \gzip "${DOCKERFILE_GENERATED_NAME}-${DOCKER_CONTAINER_VERSION}.tar"
+        __record 'INFO' "Image can be found at --> $( \dirname "${DOCKERFILE}" )/${DOCKERFILE_GENERATED_NAME}-${DOCKER_CONTAINER_VERSION}.tar.gz"
+      else
+        __record 'ERROR' "Issue encountered generating image for ${DOCKERFILE_GENERATED_NAME}:${DOCKER_CONTAINER_VERSION}"
+        __record 'WARN' 'Cleanup needed for stale docker images and stale Dockerfiles'
+      fi
       popd >/dev/null 2>&1
       RC=$?
     fi
