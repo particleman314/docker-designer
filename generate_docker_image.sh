@@ -127,9 +127,9 @@ build_image()
   # Call getopt to validate the provided input.
   if [ "$( \uname )" == 'Darwin' ]
   then
-    options=$( getopt 'hdj:a:m:u:p:e:xyz' $* )
+    options=$( getopt 'hdj:a:m:u:p:e:xyzr:v:n:' $* )
   else
-    options=$( getopt -o 'hdj:a:m:u:p:e:' --long 'help,dryrun,dockerdir:,java:,ant:,maven:,ubuntu:packages:contvers:contname:env:multistage,composite' -- "$@" )
+    options=$( getopt -o 'hdj:a:m:u:p:e:r:v:n:' --long 'help,dryrun,dockerdir:,java:,ant:,maven:,ubuntu:packages:contvers:contname:env:multistage,composite' -- "$@" )
   fi
   [ $? -eq 0 ] || { 
     __record 'ERROR' 'Incorrect options provided'
@@ -150,7 +150,7 @@ build_image()
     -d|--dryrun)
         DOCKER_DRYRUN=1;
         ;;
-      --dockerdir)
+    -r|--dockerdir)
         shift
         DOCKERFILE_LOCATION="$1";
         ;;
@@ -203,11 +203,11 @@ build_image()
         DOCKER_COMPONENT_NAMES+=' OS:ubuntu';
         __record 'INFO' 'Using Ubuntu for docker build...'
         ;;
-       --contname)
+    -n|--contname)
         shift;
         DOCKERFILE_GENERATED_NAME="$1";
         ;;
-       --contvers)
+    -v|--contvers)
         shift;
         DOCKER_CONTAINER_VERSION="$1";
         ;;
@@ -468,9 +468,9 @@ Options :
                            code name for Ubuntu
 
 
-       --dockerdir <>   Define toplevel of tree representing docker files
-       --contvers  <>   Container version to associate to docker build
-       --contname  <>   Container repository name for docker build
+  -r | --dockerdir <>   Define toplevel of tree representing docker files
+  -v | --contvers  <>   Container version to associate to docker build
+  -n | --contname  <>   Container repository name for docker build
   
   -e | --env <>         Environment setting to include into docker build image.
   -p | --package <>     Ubuntu package to include into upgrade of basis docker

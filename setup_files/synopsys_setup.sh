@@ -54,10 +54,10 @@ if [ -d "${__ENTRYPOINT_DIR}" ]
 then
   pushd "${__ENTRYPOINT_DIR}" > /dev/null 2>&1
 
-  __setupfiles
+  __setupfiles=
   if [ -f "${__ENTRYPOINT_DIR}/dependency.dat" ]
   then
-    typeset __line=
+    __line=
     while read -r __line
     do
       __setupfiles+=" synopsys_setup_${__line}.sh"
@@ -69,7 +69,7 @@ then
   for __sf in ${__setupfiles}
   do
     __sftype="$( printf "%s\n" "$( \basename "${__sf}" )" | \sed -e 's#synopsys_setup_\(\w*\).sh#\1#' )"
-    [ -f ".no_install_${sftype}.mrk" ] && continue
+    [ -f ".no_install_${__sftype}.mrk" ] && continue
     
     . "${__sf}"
   done

@@ -239,6 +239,7 @@ prepare_ubuntu_docker_contents()
     __record_ubuntu_header "${filename}"
     __record_ubuntu_body "${filename}"
     __record_ubuntu_environment "${filename}"
+    __record_addon_variables "${filename}"
 
     typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
     typeset subimage_id=0
