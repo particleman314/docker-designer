@@ -34,6 +34,7 @@ else
 fi
 
 BUILD_TYPE=0
+CURRENT_IMAGE_ID=0
 
 UBUNTU_PACKAGES=
 ENV_SETTINGS=
@@ -98,6 +99,7 @@ add_environment_setting()
   return 0
 }
 
+### UGLY Hack
 add_environment_setting_default()
 {
   typeset envname=
@@ -125,7 +127,7 @@ build_image()
   # Call getopt to validate the provided input.
   if [ "$( \uname )" == 'Darwin' ]
   then
-    options=$( getopt 'hdj:a:m:u:p:e:' $* )
+    options=$( getopt 'hdj:a:m:u:p:e:xyz' $* )
   else
     options=$( getopt -o 'hdj:a:m:u:p:e:' --long 'help,dryrun,dockerdir:,java:,ant:,maven:,ubuntu:packages:contvers:contname:env:multistage,composite' -- "$@" )
   fi
@@ -140,7 +142,6 @@ build_image()
   eval set -- "${options}"
   while true
   do
-    echo "$1"
     case "$1" in
     -h|--help)
         usage;
@@ -218,13 +219,13 @@ build_image()
         shift;
         UBUNTU_PACKAGES+=" $1";
         ;;
-       --single)
+    -x|--single)
         [ "${DOCKER_COMPONENTS}" -le 1 ] && BUILD_TYPE=1;
         ;;
-       --composite)
+    -y|--composite)
         BUILD_TYPE=2;
         ;;
-       --multistage)
+    -z|--multistage)
 		    BUILD_TYPE=4;
 		    ;;
     --)
@@ -255,9 +256,9 @@ build_image()
     \which docker >/dev/null 2>&1
     if [ $? -eq 0 ]
     then
-      pushd "$( \dirname "${DOCKERFILE}" )"
+      pushd "$( \dirname "${DOCKERFILE}" )" >/dev/null 2>&1
       \docker build --tag ${DOCKERFILE_GENERATED_NAME}:${DOCKER_CONTAINER_VERSION} .
-      popd
+      popd >/dev/null 2>&1
       RC=$?
     fi
   fi
@@ -423,12 +424,9 @@ write_dockerfile()
     comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
     . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${comp}.sh"
 
-    if [ "${BUILD_TYPE}" -eq 1 ]
-    then
-      typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
-      eval "version=\${${upcomp}_VERSION}"
-    fi
-
+    typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
+    eval "version=\${${upcomp}_VERSION}"
+ 
     write_dockerfile_${comp} "${version}"
   done
 
@@ -436,6 +434,9 @@ write_dockerfile()
   os_component="$( printf "%s\n" "${os_component}" | \cut -f 2 -d ':' )"
 
   . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${os_component}.sh"
+  typeset upcomp="$( printf "%s\n" "${os_component}" | \tr '[:lower:]' '[:upper:]' )"
+
+  eval "version=\${${upcomp}_VERSION}"
   write_dockerfile_${os_component} "${version}"
   RC=$?
 
@@ -478,23 +479,15 @@ Options :
                             instance (in quotes)
 
 
-       --single         Allow for a single builds for any applications to be made
+  -x | --single         Allow for a single builds for any applications to be made
                             into separate docker files
-       --composite      Allow for a composite dockerfile for all applications to be
+  -y | --composite      Allow for a composite dockerfile for all applications to be
                             assembled.
-       --multistage     Allow for a multistage dockerfile for all applications to be
+  -z | --multistage     Allow for a multistage dockerfile for all applications to be
                             assembled.
 EOH
   return 0
 }
-
-#  \cat <<-EOD >> ${DOCKERFILE_LOCATION}/${DOCKERFILE_GENERATED_NAME}/Dockerfile
-##############################################################################
-# Install a binary version of requested software
-##############################################################################
-#COPY components/* /tmp/
-
-#EOD
 
 ###############################################################################
 # Absolute minimum default settings
@@ -502,9 +495,10 @@ EOH
 __CURRENT_DIR="$( \pwd -L )"
 __CLEANUP_FILE="${__CURRENT_DIR}/.cleanup"
 
-add_environment_setting_default '__ENTRYPOINT_DIR=/usr/local/bin/docker-entries.d'
+__read_defaults
+
+add_environment_setting_default "__ENTRYPOINT_DIR=${__ENTRYPOINT_DIR}"
 DOCKER_IMAGE_ORDER=
 
-__read_defaults
 build_image "$@"
 cleanup

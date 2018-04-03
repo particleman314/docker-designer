@@ -54,6 +54,7 @@ check_java_settings()
 prepare_docker_contents()
 {
   typeset RC=0
+  typeset COMPONENT_DIR="${1:-${OUTPUT_DIR}}"
 
   if [ ! -d "${__IMAGE_BINARY_DIR}" ]
   then
@@ -82,18 +83,21 @@ prepare_docker_contents()
     return "${RC}"
   fi
 
-  \mkdir -p "${OUTPUT_DIR}/components"
-  \cp -f "${__IMAGE_BINARY_DIR}/${matched_file}" "${OUTPUT_DIR}/components"
-  record_cleanup "${OUTPUT_DIR}/components/${matched_file}"
+  \mkdir -p "${COMPONENT_DIR}/components"
+  \cp -f "${__IMAGE_BINARY_DIR}/${matched_file}" "${COMPONENT_DIR}/components"
+  record_cleanup "${COMPONENT_DIR}/components/${matched_file}"
 
-  \cp -f "${__CURRENT_DIR}/installation_files/install_java.sh" "${OUTPUT_DIR}/components"
-  record_cleanup "${OUTPUT_DIR}/components/install_java.sh"
+  \cp -f "${__CURRENT_DIR}/installation_files/install_java.sh" "${COMPONENT_DIR}/components"
+  record_cleanup "${COMPONENT_DIR}/components/install_java.sh"
 
-  \cp -f "${__CURRENT_DIR}/setup_files/synopsys_setup_java.sh" "${OUTPUT_DIR}/components"
-  record_cleanup "${OUTPUT_DIR}/components/synopsys_setup_java.sh"
+  \cp -f "${__CURRENT_DIR}/setup_files/synopsys_setup_java.sh" "${COMPONENT_DIR}/components"
+  record_cleanup "${COMPONENT_DIR}/components/synopsys_setup_java.sh"
 
-  \cp -f "${__CURRENT_DIR}/setup_files/synopsys_setup.sh" "${OUTPUT_DIR}/components"
-  record_cleanup "${OUTPUT_DIR}/components/synopsys_setup.sh"
+  \cp -f "${__CURRENT_DIR}/setup_files/synopsys_setup.sh" "${COMPONENT_DIR}/components"
+  record_cleanup "${COMPONENT_DIR}/components/synopsys_setup.sh"
+
+  \cp -f "${__CURRENT_DIR}/setup_files/dependency.dat" "${COMPONENT_DIR}/components"
+  record_cleanup "${COMPONENT_DIR}/components/dependency.dat"
 
   return "${RC}"
 }
@@ -116,12 +120,34 @@ write_dockerfile_java()
     write_dockerfile_body "${OUTPUT_DIR}/DockerSubcomponent_java"
     prepare_docker_contents
     RC=$?
+  else
+    DOCKER_SUBIMAGE_MAPPING+=" java:${CURRENT_IMAGE_ID}"
+    CURRENT_IMAGE_ID=$(( CURRENT_IMAGE_ID + 1 ))
 
-    unset __SOFTWARE
-    unset __IMAGE_BINARY_DIR
-    unset OUTPUT_DIR
-    unset write_dockerfile_body
+    OUTPUT_DIR="${DOCKERFILE_LOCATION}/java/${DOCKERFILE_GENERATED_NAME}/${version}"
+    outputfile="${OUTPUT_DIR}/Dockerfile"
+    \mkdir -p "${OUTPUT_DIR}"
+    \rm -f "${outputfile}"
+
+    . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_ubuntu.sh"
+
+    __record_ubuntu_header "${outputfile}"
+    __record_ubuntu_environment "${outputfile}"
+    __record_addon_variables "${outputfile}" "${ENV_SETTINGS_JAVA}"
+    __record_components "${outputfile}"
+    write_dockerfile_body "${outputfile}"
+
+    prepare_docker_contents "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${UBUNTU_VERSION}"
+
+    printf "\n%s\n\n" "### --------------------------------------------- ###" >> "${outputfile}"
   fi
+
+  unset __SOFTWARE
+  unset __IMAGE_BINARY_DIR
+  unset OUTPUT_DIR
+  unset write_dockerfile_body
+  unset prepare_docker_contents
+
   return "${RC}"
 }
 

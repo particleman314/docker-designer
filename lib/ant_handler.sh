@@ -29,4 +29,6 @@ ANT_VERSION="$( printf "%s\n" "$1" | \cut -f 1 -d ':' )"
 ANT_HOME="$( printf "%s\n" "$1" | \cut -f 2 -d ':' )"
 [ "${ANT_HOME}" == "${ANT_VERSION}" ] && ANT_HOME="${__DEFAULT_ANT_HOME}"
 
+ENV_SETTINGS_ANT='ANT_VERSION ANT_HOME'
+
 add_environment_setting 'ANT_VERSION' 'ANT_HOME'

@@ -42,7 +42,7 @@ record_environment()
   #############################################################################
   # Repord environment settings within the container
   #############################################################################
-  set | \sort >> '/tmp/docker_ep.log'
+  set | \sort >> '/tmp/docker_env_synopsys.log'
 }
 
 ###############################################################################
@@ -54,14 +54,24 @@ if [ -d "${__ENTRYPOINT_DIR}" ]
 then
   pushd "${__ENTRYPOINT_DIR}" > /dev/null 2>&1
 
-  setupfiles="$( \find . -type f -name "synopsys_setup*.sh" )"
+  __setupfiles
+  if [ -f "${__ENTRYPOINT_DIR}/dependency.dat" ]
+  then
+    typeset __line=
+    while read -r __line
+    do
+      __setupfiles+=" synopsys_setup_${__line}.sh"
+    done < 'dependency.dat'
+  else
+    __setupfiles="$( \find . -type f -name "synopsys_setup*.sh" )"
+  fi
 
-  for sf in ${setupfiles}
+  for __sf in ${__setupfiles}
   do
-    sftype="$( printf "%s\n" "$( \basename "${sf}" )" | \sed -e 's#synopsys_setup_\(\w*\).sh#\1#' )"
+    __sftype="$( printf "%s\n" "$( \basename "${__sf}" )" | \sed -e 's#synopsys_setup_\(\w*\).sh#\1#' )"
     [ -f ".no_install_${sftype}.mrk" ] && continue
     
-    . "${sf}"
+    . "${__sf}"
   done
 
   popd > /dev/null 2>&1

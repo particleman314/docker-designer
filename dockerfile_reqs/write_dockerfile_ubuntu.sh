@@ -36,10 +36,38 @@ fi
 __record_addon_variables()
 {
   typeset filename="$1"
-  \cat <<-EOD >> "${filename}"
+  typeset envvar_subset="$2"
+
+  typeset ENV_SETTINGS_SUBSET=
+  if [ -n "${envvar_subset}" ]
+  then
+    typeset evss=
+    for evss in ${envvar_subset}
+    do
+      for es in ${ENV_SETTINGS}
+      do
+        printf "%s\n" "${es}" | \grep -q "${evss}"
+        if [ $? -eq 0 ]
+        then
+          ENV_SETTINGS_SUBSET+=" ${es}"
+          break
+        fi
+      done
+    done
+  fi
+
+  if [ -n "${ENV_SETTINGS_SUBSET}" ]
+  then
+    \cat <<-EOD >> "${filename}"
+ENV ${ENV_SETTINGS_SUBSET}
+
+EOD
+  else  
+    \cat <<-EOD >> "${filename}"
 ENV ${ENV_SETTINGS}
 
 EOD
+  fi
   return 0
 }
 
@@ -56,18 +84,48 @@ EOD
   return 0
 }
 
-__record_copyfrom()
+__record_ubuntu_body()
 {
   typeset filename="$1"
-  typeset subimage_id="$2"
-  typeset home="$3"
+  \cat <<-EOD >> "${filename}"  
+##############################################################################
+# Download base packages for installation
+##############################################################################
+RUN echo "[ INFO  ] Ubuntu Version = ${UBUNTU_VERSION}" && sleep 1; \\
+    apt-get update; \\
+    apt-get install -y ${UBUNTU_PACKAGES}
 
-  \cat <<-EOD >> "${filename}"
-COPY --from=${subimage_id} ${home} /opt/
 EOD
   return 0
 }
-__record_footer()
+
+__record_ubuntu_copyfrom()
+{
+  typeset filename="$1"
+  typeset subimage_id="$2"
+  typeset sourcedir="$3"
+  typeset targetdir="${4:-"/opt"}"
+
+  \cat <<-EOD >> "${filename}"
+COPY --from=${subimage_id} "${sourcedir}" "${targetdir}"
+EOD
+  return 0
+}
+
+__record_ubuntu_environment()
+{
+  typeset filename="$1"
+  \cat <<-EOD >> "${filename}"  
+##############################################################################
+# Environmental Setup
+##############################################################################
+ENV ${ENV_UBUNTU}
+
+EOD
+  return 0
+}
+
+__record_ubuntu_footer()
 {
   typeset filename="$1"
   \cat <<-EOD >> "${filename}"
@@ -79,7 +137,7 @@ EOD
   return 0
 }
 
-__record_header()
+__record_ubuntu_header()
 {
   typeset filename="$1"
   \cat <<-EOD >> "${filename}"
@@ -91,20 +149,41 @@ LABEL vendor='Synopsys' \\
       maintainer='Mike Klusman' \\
       maintainer_email='klusman@synopsys.com'
 
-##############################################################################
-# Download base packages for installation
-##############################################################################
-RUN echo "[ INFO  ] Ubuntu Version = ${UBUNTU_VERSION}" && sleep 1; \\
-    apt-get update; \\
-    apt-get install -y ${UBUNTU_PACKAGES}
-
-ENV ${ENV_UBUNTU}
-
 EOD
   return 0
 }
 
-prepare_docker_contents()
+__record_ubuntu_linkage()
+{
+  typeset filename="$1"
+  typeset orig_tgt_dir="$2"
+  typeset upcomp="$3"
+
+  [ -z "${upcomp}" ] && return 0
+
+  typeset home=
+  typeset RUN_LINK=
+
+  case "${upcomp}" in
+  'MAVEN' )  eval "home=\${M2_HOME}"; RUN_LINK=" ln -s ${orig_tgt_dir} ${home};";;
+  *       )  eval "home=\${${upcomp}_HOME}"; RUN_LINK=" ln -s ${orig_tgt_dir} ${home};";;
+  esac
+
+  if [ -n "${RUN_LINK}" ]
+  then
+    \cat <<-EOD >> "${filename}"  
+##############################################################################
+# Assign necessary links to allow for simplicity
+##############################################################################
+RUN ${RUN_LINK}
+
+EOD
+  fi
+
+  return 0
+}
+
+prepare_ubuntu_docker_contents()
 {
   typeset RC=0
   typeset filename="$1"
@@ -122,7 +201,9 @@ prepare_docker_contents()
   ### If SINGLE or COMPOSITE BUILD (single image created)
   if [ "${BUILD_TYPE}" -eq 1 ] || [ "${BUILD_TYPE}" -eq 2 ]
   then
-    __record_header "${filename}"
+    __record_ubuntu_header "${filename}"
+    __record_ubuntu_body "${filename}"
+    __record_ubuntu_environment "${filename}"
     [ -n "${ENV_SETTINGS}" ] && __record_addon_variables "${filename}"
     [ "${DOCKER_COMPONENTS}" -ge 1 ] && __record_components "${filename}"
 
@@ -150,28 +231,41 @@ prepare_docker_contents()
 
       typeset version=
       eval "version=\${${upcomp}_VERSION}"
-      \cat "${DOCKERFILE_LOCATION}/${comp}/${DOCKERFILE_GENERATED_NAME}/Dockerfile" >> "${filename}"
-      \rm -f "${DOCKERFILE_LOCATION}/${comp}/${DOCKERFILE_GENERATED_NAME}/Dockerfile"
+
+      \cat "${DOCKERFILE_LOCATION}/${comp}/${DOCKERFILE_GENERATED_NAME}/${version}/Dockerfile" >> "${filename}"
+      \rm -f "${DOCKERFILE_LOCATION}/${comp}/${DOCKERFILE_GENERATED_NAME}/${version}/Dockerfile"
     done
 
-    __record_header "${filename}"
+    __record_ubuntu_header "${filename}"
+    __record_ubuntu_body "${filename}"
+    __record_ubuntu_environment "${filename}"
 
-    typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep 'OS:' )"
+    typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
+    typeset subimage_id=0
 
-    if [ -n "${components}" ]
-    then
-      typeset comp="$( printf "%s\n" "${components}" | \cut -f 2 -d ':' )"
+    for comp in ${components}
+    do
+      typeset comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
+      subimage_id="$( printf "%s\n" ${DOCKER_SUBIMAGE_MAPPING} | \grep "^${comp}" | \cut -f 2 -d ':' )"
+
       typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
-
+      typeset orig_install_dir=
       typeset home=
-      eval "home=\${${upcomp}_HOME}"
-      typeset subimage_id="$( printf "%s\n" ${DOCKER_SUBIMAGE_MAPPING} | \grep "^${comp}" | \cut -f 2 -d ':' )"
 
-      __record_copyfrom "${filename}" "${subimage_id}" "${home}"
-    fi
+      case "${upcomp}" in
+      'MAVEN'  )  eval "home=\${M2_HOME}"; orig_install_dir="$( \dirname "${home}" )/apache-maven-${MAVEN_VERSION}";;
+      'ANT'    )  eval "home=\${${upcomp}_HOME}"; orig_install_dir="$( \dirname "${home}" )/apache-ant-${ANT_VERSION}";;
+      'JAVA'   )  eval "home=\${${upcomp}_HOME}"; orig_install_dir="$( \dirname "${home}" )/oracle-jdk-${JAVA_VERSION}";;
+      esac
+ 
+      __record_ubuntu_copyfrom "${filename}" "${subimage_id}" "${orig_install_dir}/" "${orig_install_dir}/"
+      __record_ubuntu_copyfrom "${filename}" "${subimage_id}" "${__ENTRYPOINT_DIR}/" "${__ENTRYPOINT_DIR}/"
+      __record_ubuntu_linkage "${filename}" "${orig_install_dir}" "${upcomp}"
+    done
+    __record_ubuntu_copyfrom "${filename}" "${subimage_id}" '/usr/local/bin/synopsys_setup.sh' '/usr/local/bin/'
   fi
 
-  [ "${DOCKER_COMPONENTS}" -ge 1 ] && __record_footer "${filename}"
+  [ "${DOCKER_COMPONENTS}" -ge 1 ] && __record_ubuntu_footer "${filename}"
 
   return "${RC}"
 }
@@ -182,12 +276,13 @@ write_dockerfile_ubuntu()
   typeset version="$1"
 
   typeset OUTPUT_DIR=
-  if [ "${BUILD_TYPE}" -eq 1 ]
-  then
+  #if [ "${BUILD_TYPE}" -eq 1 ]
+  #then
     OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}"
-  else
-    OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}"
-  fi
+  #else
+  #  OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}"
+  #fi
+
   \mkdir -p "${OUTPUT_DIR}"
   typeset outputfile="${OUTPUT_DIR}/Dockerfile"
   \rm -f "${outputfile}"
@@ -197,10 +292,10 @@ write_dockerfile_ubuntu()
   #############################################################################
   [ "${BUILD_TYPE}" -eq 1 ] && DOCKER_IMAGE_ORDER+="SINGLE:${outputfile}"
 
-  prepare_docker_contents "${outputfile}"
+  prepare_ubuntu_docker_contents "${outputfile}"
   RC=$?
 
-  unset prepare_docker_contents
+  unset prepare_ubuntu_docker_contents
   unset __SOFTWARE
 
   DOCKERFILE="${outputfile}"

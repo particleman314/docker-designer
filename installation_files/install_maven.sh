@@ -51,6 +51,7 @@ install_setup_scripts()
   fi
 
   \mv -f 'synopsys_setup_maven.sh' "${__ENTRYPOINT_DIR}"
+  [ ! -f "${__ENTRYPOINT_DIR}/.dependency.dat" ] && [ -f 'dependency.dat' ] && \mv -f 'dependency.dat' "${__ENTRYPOINT_DIR}"
   [ ! -f '/usr/local/bin/synopsys_setup.sh' ] && [ -f 'synopsys_setup.sh' ] && \mv -f 'synopsys_setup.sh' '/usr/local/bin/'
   return 0
 }

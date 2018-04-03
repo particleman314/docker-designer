@@ -51,6 +51,7 @@ install_setup_scripts()
   fi
 
   \mv -f 'synopsys_setup_java.sh' "${__ENTRYPOINT_DIR}"
+  [ ! -f "${__ENTRYPOINT_DIR}/.dependency.dat" ] && [ -f 'dependency.dat' ] && \mv -f 'dependency.dat' "${__ENTRYPOINT_DIR}"
   [ ! -f '/usr/local/bin/synopsys_setup.sh' ] && [ -f 'synopsys_setup.sh' ] && \mv -f 'synopsys_setup.sh' '/usr/local/bin/'
   return 0
 }
@@ -90,7 +91,7 @@ run_install()
   typeset bindir="$( unpack_tarball "${binfile}" )"
 
   typeset target_installation_dir="$( \dirname "${JAVA_HOME}" )/oracle-jdk-${JAVA_VERSION}"
-
+  
   \mkdir -p "${target_installation_dir}"
 
   [ -z "${bindir}" ] && bindir="$( \find . -maxdepth 1 -type f -name "jdk-${JAVA_MAJOR_VERSION}*" -exec \basename "{}" \; )"
@@ -100,13 +101,13 @@ run_install()
     ./"${bindir}"
     \rm -f "${bindir}"
     bindir="$( \find . -maxdepth 1 -type d -name "jdk*${JAVA_VERSION}*" -exec \basename "{}" \; )"
-    [ -z "${bindir}" ] && return 1
-    \rm -f "${bindir}/src.zip"
   fi
 
   [ -z "${bindir}" ] && bindir="$( \find . -maxdepth 1 -type d -name "jdk*${JAVA_MAJOR_VERSION}*" -exec \basename "{}" \; )"
   [ -z "${bindir}" ] && return 1
 
+  [ -f "${bindir}/src.zip" ] && \rm -f "${bindir}/src.zip"
+ 
   \mv -f "${bindir}"/* "${target_installation_dir}"
   \rm -rf "${bindir}"
 

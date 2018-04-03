@@ -16,4 +16,6 @@ __DEFAULT_ANT_BINARY_STORE='binaries/apache-ant'
 __DEFAULT_MAVEN_HOME='/opt/maven'
 __DEFAULT_MAVEN_VERSION=3.3.1
 __DEFAULT_MAVEN_BINARY_STORE='binaries/apache-maven'
+
+__ENTRYPOINT_DIR='/usr/local/bin/docker-entries.d'
 ########################################################
