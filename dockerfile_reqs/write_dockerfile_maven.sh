@@ -57,7 +57,7 @@ prepare_docker_contents()
   if [ ! -d "${__IMAGE_BINARY_DIR}" ]
   then
     printf "%s\n" "[ ERROR ] Unable to find necessary components for installation of ${__SOFTWARE} ${MAVEN_VERSION}!"
-    return 1
+    \mkdir -p "${__IMAGE_BINARY_DIR}"
   fi
 
   typeset mvnfile="apache-maven-${MAVEN_VERSION}-bin.tar.gz"

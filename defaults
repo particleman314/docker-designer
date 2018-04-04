@@ -1,21 +1,23 @@
 ########################################################
 #package: curl wget less vim ssh
 ########################################################
+__DEFAULT_BINARY_STORE='binaries'
+
 __DEFAULT_UBUNTU_VERSION=16.04
 __DEFAULT_CONTAINER_VERSION=1.0
 __DEFAULT_DOCKERFILE_LOCATION='.'
 
 __DEFAULT_JAVA_HOME='/opt/jdk'
 __DEFAULT_JAVA_VERSION=1.7.0
-__DEFAULT_JAVA_BINARY_STORE='binaries/java'
+__DEFAULT_JAVA_BINARY_STORE="${__DEFAULT_BINARY_STORE}/java"
 
 __DEFAULT_ANT_HOME='/opt/ant'
 __DEFAULT_ANT_VERSION=1.9.11
-__DEFAULT_ANT_BINARY_STORE='binaries/apache-ant'
+__DEFAULT_ANT_BINARY_STORE="${__DEFAULT_BINARY_STORE}/apache-ant"
 
 __DEFAULT_MAVEN_HOME='/opt/maven'
 __DEFAULT_MAVEN_VERSION=3.3.1
-__DEFAULT_MAVEN_BINARY_STORE='binaries/apache-maven'
+__DEFAULT_MAVEN_BINARY_STORE="${__DEFAULT_BINARY_STORE}/apache-maven"
 
 __ENTRYPOINT_DIR='/usr/local/bin/docker-entries.d'
 ########################################################
