@@ -33,6 +33,7 @@ else
   export ENABLE_DETAILS
 fi
 
+GETOPT_COMPATIBLE=1
 BUILD_TYPE=0
 CURRENT_IMAGE_ID=0
 SKIP_CLEAN=0
@@ -128,9 +129,9 @@ build_image()
   # Call getopt to validate the provided input.
   if [ "$( \uname )" == 'Darwin' ]
   then
-    options=$( getopt 'hdj::a::m::u::p:e:sxyzr:v:n:' $* )
+    options=$( getopt 'hdj::a:m:u:p:e:sxyzr:v:n:' $* )
   else
-    options=$( getopt -o 'hdxyzsj::a::m::u::p:e:r:v:n:' --long 'skipclean,help,dryrun,dockerdir:,java::,ant::,maven::,ubuntu::packages:contvers:contname:env:single,multistage,composite' -- "$@" )
+    options=$( getopt -o 'hdxyzsj:a:m:u:p:e:r:v:n:' --long 'skipclean,help,dryrun,dockerdir:,java:,ant:,maven:,ubuntu:,packages:,contvers:,contname:,env:single,multistage,composite' -- "$@" )
   fi
   [ $? -eq 0 ] || { 
     __record 'ERROR' 'Incorrect options provided'
@@ -234,7 +235,8 @@ build_image()
         [ "${DOCKER_COMPONENTS}" -le 1 ] && BUILD_TYPE=1;
         ;;
     -y|--composite)
-        BUILD_TYPE=2;
+		__record 'WARN' "Composite build not available at this time...";
+        BUILD_TYPE=1;
         ;;
     -z|--multistage)
 	    BUILD_TYPE=4;
@@ -261,6 +263,8 @@ build_image()
   [ "${UBUNTU_MAPPED}" -eq 0 ] && map_ubuntu && DOCKER_COMPONENT_NAMES+=' OS:ubuntu'
   add_environment_setting_default "UBUNTU_NAME=${UBUNTU_NAME}" "UBUNTU_VERSION=${UBUNTU_VERSION}"
 
+  DOCKER_ARCH="$( \uname -m )"
+
   write_dockerfile
   RC=$?
   [ "${RC}" -ne 0 ] && return "${RC}"
@@ -278,7 +282,7 @@ build_image()
       then
         __record 'INFO' 'Providing image from docker for upload/distribution...'
         \docker save --output "${DOCKERFILE_GENERATED_NAME}-${DOCKER_CONTAINER_VERSION}.tar" ${DOCKERFILE_GENERATED_NAME}:${DOCKER_CONTAINER_VERSION}
-        \gzip "${DOCKERFILE_GENERATED_NAME}-${DOCKER_CONTAINER_VERSION}.tar"
+        \gzip -f "${DOCKERFILE_GENERATED_NAME}-${DOCKER_CONTAINER_VERSION}.tar"
         __record 'INFO' "Image can be found at --> $( \dirname "${DOCKERFILE}" )/${DOCKERFILE_GENERATED_NAME}-${DOCKER_CONTAINER_VERSION}.tar.gz"
       else
         __record 'ERROR' "Issue encountered generating image for ${DOCKERFILE_GENERATED_NAME}:${DOCKER_CONTAINER_VERSION}"
@@ -314,7 +318,7 @@ generate_docker_tag()
   then
     ### Order from commandline -- Need to reorder and handle dependencies
     typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
-    [ -n "${components}" ] && printf "%s\n" "${components}"
+    [ -n "${components}" ] && printf "%s" "${components}"
     return 0
   fi
 
@@ -323,10 +327,21 @@ generate_docker_tag()
     typeset progs="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep 'PROG' )"
     if [ -n "${progs}" ]
     then
-      progs="$( printf "%s\n" "${progs}" | \cut -f 2 -d ':' | \sed -e "s/\n/ /g" | \awk '{$1=$1;print}' )"
+      progs="$( printf "%s\n" "${progs}" | \cut -f 2 -d ':' | \awk '{printf "%s ",$0} END {print ""}' | \awk '{$1=$1;print}' )"
     fi
 
+    ### This may add in dependent components which may elevate from singel to multistage build
     progs="$( reorder_by_dependencies "${progs}" )"
+
+    DOCKER_COMPONENTS="$( printf "%s\n" "${progs}" | \awk '{print NF}' )"
+    if [ "${DOCKER_COMPONENTS}" -gt 1 ]
+    then
+      typeset osdesignation="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep 'OS' )"
+      DOCKER_COMPONENT_NAMES="$( printf "%s\n" "${progs}" | \awk '{ for(i = 1; i <= NF; i++) { print "PROG:"$i } }' )"
+      DOCKER_COMPONENT_NAMES+=" ${osdesignation}"
+      BUILD_TYPE=4
+    fi
+
     if [ "${DOCKER_COMPONENTS}" -eq 1 ]
     then
       if [ -z "${progs}" ]
@@ -349,6 +364,11 @@ generate_docker_tag()
       typeset upp="$( printf "%s\n" "${p}" | \tr '[:lower:]' '[:upper:]' )"
       typeset pvers=
       eval "pvers=\${${upp}_VERSION}"
+      if [ -z "${pvers}" ]
+      then
+        . "lib/${p}_handler.sh" 'default';
+        eval "pvers=\${${upp}_VERSION}"
+      fi
       typeset marker="${p:0:1}"
 
       DOCKERFILE_GENERATED_NAME+="_${marker}${pvers}"
@@ -393,14 +413,20 @@ map_ubuntu()
   if [ -z "${UBUNTU_VERSION}" ]
   then
     case "${UBUNTU_NAME}" in
-    'trusty' )  UBUNTU_VERSION='14.04';;
-    'xenial' )  UBUNTU_VERSION='16.04';;
-    'artsy'  )  UBUNTU_VERSION='17.10';;
-    'bionic' )  UBUNTU_VERSION='18.04';;
+    'hardy'   )  UBUNTU_VERSION='8.04';;
+    'lucid'   )  UBUNTU_VERSION='10.04';;
+    'precise' )  UBUNTU_VERSION='12.04';;
+    'trusty'  )  UBUNTU_VERSION='14.04';;
+    'xenial'  )  UBUNTU_VERSION='16.04';;
+    'artsy'   )  UBUNTU_VERSION='17.10';;
+    'bionic'  )  UBUNTU_VERSION='18.04';;
     esac
   else
     case "${UBUNTU_VERSION}" in
-    '12.04' )  UBUNTU_NAME='trusty';;
+    '8.04'  )  UBUNTU_NAME='hardy';;
+    '10.04' )  UBUNTU_NAME='lucid';;
+    '12.04' )  UBUNTU_NAME='precise';;
+    '14.04' )  UBUNTU_NAME='trusty';;
     '16.04' )  UBUNTU_NAME='xenial';;
     '17.10' )  UBUNTU_NAME='artsy';;
     '18.04' )  UBUNTU_NAME='bionic';;
@@ -432,10 +458,55 @@ record_cleanup()
 
 reorder_by_dependencies()
 {
-  typeset known_progs="$1"
+  typeset active_progs="$1"
   typeset depfile="${__CURRENT_DIR}/setup_files/dependency.dat"
 
-  printf "%s\n" "${known_progs}"
+  [ -z "${active_progs}" ] && return 0
+
+  if [ -f "${depfile}" ]
+  then
+    typeset counter=1
+    typeset numwords="$( printf "%s\n" "${active_progs}" | \awk '{print NF}' )"
+    while [ "${counter}" -le "${numwords}" ]
+    do
+      typeset active="$( printf "%s\n" "${active_progs}" | \cut -f ${counter} -d ' ' )"
+      if [ "${active:0:1}" == '+' ]
+      then
+        counter=$(( counter + 1 ))
+        continue
+      fi
+
+	  typeset match="$( \cat "${depfile}" | \grep "^${active}" )"
+      typeset dependencies="$( printf "%s\n" "${match}" | \cut -f 2 -d ':' )"
+      if [ -z "${dependencies}" ]
+      then
+        active_progs="$( printf "%s\n" "${active_progs}" | \awk -v n=${counter} '{ for(i = 1; i <= NF; i++) { if ( i == n )print "+"$i ; else print $i } }' | \tr '\n' ' ' )"
+        counter=$(( counter + 1 ))
+        continue
+      fi
+
+      typeset numdeps="$( printf "%s\n" "${dependencies}" | \awk '{print NF}' )"
+      if [ "${counter}" -eq 1 ]
+      then
+        active_progs="${dependencies} ${active_progs}"
+        typeset offset=$(( counter + numdeps ))
+        active_progs="$( printf "%s\n" "${active_progs}" | \awk -v n=${offset} '{ for(i = 1; i <= NF; i++) { if ( i == n )print "+"$i ; else print $i } }' | \tr '\n' ' ' )"
+      else
+      	typeset justbefore=$(( counter - 1 ))
+      	typeset beginline="$( printf "%s\n" "${active_progs}" | \cut -f 1-${justbefore} -d ' ' )"
+      	typeset endline="$( printf "%s\n" "${active_progs}" | \cut -f ${counter}- -d ' ' )"
+      	active_progs="${beginline} ${dependencies} ${endline}"
+        typeset offset=$(( counter + numdeps ))
+        active_progs="$( printf "%s\n" "${active_progs}" | \awk -v n=${offset} '{ for(i = 1; i <= NF; i++) { if ( i == n )print "+"$i ; else print $i } }' | \tr '\n' ' ' )"
+        counter=1
+      fi
+      numwords="$( printf "%s\n" "${active_progs}" | \awk '{print NF}' )"
+    done
+  fi
+
+  active_progs="$( printf "%s\n" "${active_progs}" | \tr ' ' '\n' | \awk '!unique[$0]++' )"
+  active_progs="$( printf "%s\n" "${active_progs}" | \awk '{print substr($0,2)}' | \tr '\n' ' ' | \sed -e 's/ *$//g' )"
+  printf "%s\n" "${active_progs}"
   return 0
 }
 
@@ -451,6 +522,8 @@ write_dockerfile()
     \rm -f "${__CURRENT_DIR}/.tempoutput"
     return "${RC}"
   fi
+
+  [ "${BUILD_TYPE}" -eq 4 ] && \rm -rf "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${UBUNTU_VERSION}"
 
   typeset ordered_components="$( \cat "${__CURRENT_DIR}/.tempoutput" )"
   \rm -f "${__CURRENT_DIR}/.tempoutput"
@@ -474,7 +547,7 @@ write_dockerfile()
     [ "${RC}" -ne 0 ] && return "${RC}"
   done
 
-  if [ "${BUILD_TYPE}" -eq 3 ]
+  if [ "${BUILD_TYPE}" -eq 4 ]
   then
     typeset os_component="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep  'OS:' )"
     os_component="$( printf "%s\n" "${os_component}" | \cut -f 2 -d ':' )"
@@ -545,7 +618,6 @@ __CLEANUP_FILE="${__CURRENT_DIR}/.cleanup"
 __read_defaults
 
 add_environment_setting_default "__ENTRYPOINT_DIR=${__ENTRYPOINT_DIR}"
-DOCKER_IMAGE_ORDER=
 
 build_image "$@"
 cleanup

@@ -217,8 +217,8 @@ prepare_ubuntu_docker_contents()
 
       typeset version=
       eval "version=\${${upcomp}_VERSION}"
-      \cat "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/DockerSubcomponent_${comp}" >> "${filename}"
-      \rm -f "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/DockerSubcomponent_${comp}"
+      \cat "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}/DockerSubcomponent_${comp}" >> "${filename}"
+      \rm -f "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}/DockerSubcomponent_${comp}"
     done
   else
     typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
@@ -232,8 +232,8 @@ prepare_ubuntu_docker_contents()
       typeset version=
       eval "version=\${${upcomp}_VERSION}"
 
-      \cat "${DOCKERFILE_LOCATION}/${comp}/${DOCKERFILE_GENERATED_NAME}/${version}/Dockerfile" >> "${filename}"
-      \rm -f "${DOCKERFILE_LOCATION}/${comp}/${DOCKERFILE_GENERATED_NAME}/${version}/Dockerfile"
+      \cat "${DOCKERFILE_LOCATION}/${comp}/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}/Dockerfile" >> "${filename}"
+      \rm -f "${DOCKERFILE_LOCATION}/${comp}/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}/Dockerfile"
     done
 
     __record_ubuntu_header "${filename}"
@@ -277,28 +277,19 @@ write_dockerfile_ubuntu()
   typeset version="$1"
 
   typeset OUTPUT_DIR=
-  #if [ "${BUILD_TYPE}" -eq 1 ]
-  #then
-    OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}"
-  #else
-  #  OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}"
-  #fi
+  [ "${BUILD_TYPE}" -eq 1 ] && OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}"
+  [ "${BUILD_TYPE}" -eq 4 ] && OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}__${DOCKER_CONTAINER_VERSION}/${version}/${DOCKER_ARCH}"
 
   \mkdir -p "${OUTPUT_DIR}"
-  typeset outputfile="${OUTPUT_DIR}/Dockerfile"
-  \rm -f "${outputfile}"
 
-  #############################################################################
-  # Single source Dockerfile build
-  #############################################################################
-  [ "${BUILD_TYPE}" -eq 1 ] && DOCKER_IMAGE_ORDER+="SINGLE:${outputfile}"
+  DOCKERFILE="${OUTPUT_DIR}/Dockerfile"
+  [ "${BUILD_TYPE}" -eq 1 ] && \rm -f "${DOCKERFILE}"
 
-  prepare_ubuntu_docker_contents "${outputfile}"
+  prepare_ubuntu_docker_contents "${DOCKERFILE}"
   RC=$?
 
   unset prepare_ubuntu_docker_contents
   unset __SOFTWARE
 
-  DOCKERFILE="${outputfile}"
   return "${RC}"
 }

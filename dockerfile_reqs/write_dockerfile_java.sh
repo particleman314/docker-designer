@@ -105,7 +105,6 @@ prepare_docker_contents()
 write_dockerfile_java()
 {
   typeset version="$1"
-  typeset outputfile=
   typeset RC=0
 
   check_java_settings
@@ -114,54 +113,50 @@ write_dockerfile_java()
 
   if [ "${BUILD_TYPE}" -ne 2 ]
   then
-    if [ "${BUILD_TYPE}" -eq 3 ]
-    then
-      DOCKER_SUBIMAGE_MAPPING+=" java:${CURRENT_IMAGE_ID}"
-      CURRENT_IMAGE_ID=$(( CURRENT_IMAGE_ID + 1 ))
-    else
-      OUTPUT_DIR="${DOCKERFILE_LOCATION}/java/${DOCKERFILE_GENERATED_NAME}/${version}"
-    fi
+    [ "${BUILD_TYPE}" -eq 4 ] && DOCKER_SUBIMAGE_MAPPING+=" java:${CURRENT_IMAGE_ID}"
+    OUTPUT_DIR="${DOCKERFILE_LOCATION}/java/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}"
     
-    outputfile="${OUTPUT_DIR}/Dockerfile"
+    DOCKERFILE="${OUTPUT_DIR}/Dockerfile"
     \mkdir -p "${OUTPUT_DIR}"
-    \rm -f "${outputfile}"
+    [ "${BUILD_TYPE}" -ne 4 ] && \rm -f "${DOCKERFILE}"
 
     . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_ubuntu.sh"
 
-    __record_ubuntu_header "${outputfile}"
-    __record_ubuntu_environment "${outputfile}"
+    __record_ubuntu_header "${DOCKERFILE}"
+    __record_ubuntu_environment "${DOCKERFILE}"
 
-    [ "${BUILD_TYPE}" -eq 3 ] \
-      && __record_addon_variables "${outputfile}" "${ENV_SETTINGS_JAVA}" \
-      || __record_addon_variables "${outputfile}"
+    [ "${BUILD_TYPE}" -eq 4 ] \
+      && __record_addon_variables "${DOCKERFILE}" "${ENV_SETTINGS_JAVA}" \
+      || __record_addon_variables "${DOCKERFILE}"
 
-    __record_components "${outputfile}"
+    __record_components "${DOCKERFILE}"
 
-    write_dockerfile_body "${outputfile}"
+    write_dockerfile_body "${DOCKERFILE}"
 
-    if [ "${BUILD_TYPE}" -eq 3 ]
+    if [ "${BUILD_TYPE}" -eq 4 ]
     then
-      prepare_docker_contents "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${UBUNTU_VERSION}"
+      prepare_docker_contents "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}__${DOCKER_CONTAINER_VERSION}/${UBUNTU_VERSION}/${DOCKER_ARCH}"
       RC=$?
-      printf "\n%s\n\n" "### --------------------------------------------- ###" >> "${outputfile}"
+      printf "\n%s\n\n" "### --------------------------------------------- ###" >> "${DOCKERFILE}"
 
       unset __SOFTWARE
       unset __IMAGE_BINARY_DIR
       unset OUTPUT_DIR
       unset write_dockerfile_body
       unset prepare_docker_contents
+      CURRENT_IMAGE_ID=$(( CURRENT_IMAGE_ID + 1 ))
     else
-      __record_ubuntu_footer "${outputfile}"
+      __record_ubuntu_footer "${DOCKERFILE}"
       prepare_docker_contents
       RC=$?
     fi
   else
-    OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}"
-    outputfile="${OUTPUT_DIR}/DockerSubcomponent_java"
+    OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}"
+    DOCKERFILE="${OUTPUT_DIR}/DockerSubcomponent_java"
     \mkdir -p "${OUTPUT_DIR}"
     \rm -f "${OUTPUT_DIR}/DockerSubcomponent_java"
 
-    write_dockerfile_body "${outputfile}"
+    write_dockerfile_body "${DOCKERFILE}"
     prepare_docker_contents
     RC=$?
   fi
