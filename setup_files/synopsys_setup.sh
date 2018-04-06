@@ -50,32 +50,35 @@ record_environment()
 ###############################################################################
 record_environment
 
-if [ -d "${__ENTRYPOINT_DIR}" ]
+if [ -z "${__BYPASS__}" ] || [ "${__BYPASS__}" -ne 1 ]
 then
-  pushd "${__ENTRYPOINT_DIR}" > /dev/null 2>&1
-
-  __setupfiles=
-  if [ -f "${__ENTRYPOINT_DIR}/dependency.dat" ]
+  if [ -d "${__ENTRYPOINT_DIR}" ]
   then
-    __line=
-    while read -r __line
+    pushd "${__ENTRYPOINT_DIR}" > /dev/null 2>&1
+
+    __setupfiles=
+    if [ -f "${__ENTRYPOINT_DIR}/dependency.dat" ]
+    then
+      __line=
+      while read -r __line
+      do
+        __prog="$( printf "%s\n" "${__line}" | \cut -f 1 -d ':' )"
+        __setupfiles+=" synopsys_setup_${prog}.sh"
+      done < 'dependency.dat'
+    else
+      __setupfiles="$( \find . -type f -name "synopsys_setup*.sh" )"
+    fi
+
+    for __sf in ${__setupfiles}
     do
-      __prog="$( printf "%s\n" "${__line}" | \cut -f 1 -d ':' )"
-      __setupfiles+=" synopsys_setup_${prog}.sh"
-    done < 'dependency.dat'
-  else
-    __setupfiles="$( \find . -type f -name "synopsys_setup*.sh" )"
-  fi
-
-  for __sf in ${__setupfiles}
-  do
-    __sftype="$( printf "%s\n" "$( \basename "${__sf}" )" | \sed -e 's#synopsys_setup_\(\w*\).sh#\1#' )"
-    [ -f ".no_install_${__sftype}.mrk" ] && continue
+      __sftype="$( printf "%s\n" "$( \basename "${__sf}" )" | \sed -e 's#synopsys_setup_\(\w*\).sh#\1#' )"
+      [ -f ".no_install_${__sftype}.mrk" ] && continue
     
-    . "${__sf}"
-  done
+      . "${__sf}"
+    done
 
-  popd > /dev/null 2>&1
+    popd > /dev/null 2>&1
+  fi
 fi
 
 exec "$@"

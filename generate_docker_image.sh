@@ -35,6 +35,7 @@ fi
 
 GETOPT_COMPATIBLE=1
 BUILD_TYPE=0
+ALLOW_COMPOSITE_BUILDER_PATTERN=0
 CURRENT_IMAGE_ID=0
 SKIP_CLEAN=0
 
@@ -43,9 +44,22 @@ ENV_SETTINGS=
 
 trap "cleanup; exit 1" SIGINT SIGTERM
 
+__check_for_docker_builder_pattern_usage()
+{
+  BUILD_TYPE=2
+  __record 'WARN' "Current version of docker << ${DOCKER_EXE_VERSION} >> does NOT support simplified multistage builds"
+  __record 'WARN' "Reverting to older style of composite building..."
+  if [ "${ALLOW_COMPOSITE_BUILDER_PATTERN}" -eq 1 ]
+  then
+    __record 'INFO' "Using 'builder pattern' for multistage request"
+    BUILD_TYPE=3
+  fi
+  return 0
+}
+
 __read_defaults()
 {
-  typeset deffile="${__DEFAULTS_FILE:-${__CURRENT_DIR}/defaults}"
+  typeset deffile="${__DEFAULTS_FILE:-${__PROGRAM_DIR}/defaults}"
   [ ! -f "${deffile}" ] && return 0
 
   . "${deffile}"
@@ -129,15 +143,16 @@ build_image()
   # Call getopt to validate the provided input.
   if [ "$( \uname )" == 'Darwin' ]
   then
-    options=$( getopt 'hdj::a:m:u:p:e:sxyzr:v:n:' $* )
+    options=$( getopt 'ac:de:hn:p:qr:su:v:xyz' $* )
   else
-    options=$( getopt -o 'hdxyzsj:a:m:u:p:e:r:v:n:' --long 'skipclean,help,dryrun,dockerdir:,java:,ant:,maven:,ubuntu:,packages:,contvers:,contname:,env:single,multistage,composite' -- "$@" )
+    options=$( getopt -o 'ac:de:hn:p:qr:su:v:xyz' --long 'allowbuilder,dryrun,env:,help,contname:,package:,ubuntupackage:,dockerdir:,skipclean,ubuntu:,contvers:,single,composite,multistage' -- "$@" )
   fi
   [ $? -eq 0 ] || { 
     __record 'ERROR' 'Incorrect options provided'
     exit 1
   }
 
+  DOCKER_QUIET_FLAG=
   DOCKER_COMPONENTS=0
   UBUNTU_MAPPED=0
 
@@ -147,61 +162,58 @@ build_image()
   while true
   do
     case "$1" in
+    -a|--allowbuilder)
+        ALLOW_COMPOSITE_BUILDER_PATTERN=1;
+        BUILD_TYPE=3;
+        ;;
+    -c|--ubuntupackage)
+        shift;
+        UBUNTU_PACKAGES+=" $1";
+        ;;
+    -d|--dryrun)
+        DOCKER_DRYRUN=1;
+        ;;
+    -e|--env)
+        shift;
+        ENV_SETTINGS+=" $1";
+        ;;
     -h|--help)
         usage;
         exit 255;
         ;;
-    -d|--dryrun)
-        DOCKER_DRYRUN=1;
+    -n|--contname)
+        shift;
+        DOCKERFILE_GENERATED_NAME="$1";
+        ;;
+    -p|--package)
+        shift;
+        typeset combo="$1"
+        typeset pkgname="$( printf "%s\n" "${combo}" | \cut -f 1 -d ':' )";
+        typeset reqvers="$( printf "%s\n" "${combo}" | \cut -f 2- -d ':' )";
+        [ "${pkgname}" == "${reqvers}" ] && reqvers='default'
+
+        if [ -f "${__PROGRAM_DIR}/lib/${pkgname}_handler.sh" ];
+        then
+          [ -z "${reqvers}" ] && pusharg='default' || pusharg="${reqvers}"
+          . "${__PROGRAM_DIR}/lib/${pkgname}_handler.sh" "${pusharg}";
+
+          DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
+          DOCKER_COMPONENT_NAMES+=" PROG:${pkgname}";
+
+          __record 'INFO' "Adding Package << ${pkgname} >> for docker build...";
+        else
+          __record 'ERROR' "Cannot find ${pkgname} handler library!";
+        fi;
+        ;;
+    -q|--quiet)
+        DOCKER_QUIET_FLAG='--quiet'
         ;;
     -r|--dockerdir)
         shift
         DOCKERFILE_LOCATION="$1";
         ;;
-    -j|--java)
-        shift;
-        if [ -f 'lib/java_handler.sh' ];
-        then
-          [ -z "$1" ] && pusharg='default' || pusharg="$1"
-          . 'lib/java_handler.sh' "${pusharg}";
-
-          DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
-          DOCKER_COMPONENT_NAMES+=' PROG:java';
-
-          __record 'INFO' "Adding Java for docker build ( ${JAVA_VERSION} )...";
-        else
-          __record 'ERROR' 'Cannot find JAVA handler library!';
-        fi;
-        ;;
-    -a|--ant)
-        shift;
-        if [ -f 'lib/ant_handler.sh' ];
-        then
-          [ -z "$1" ] && pusharg='default' || pusharg="$1"
-          . 'lib/ant_handler.sh' "${pusharg}";
-
-          DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
-          DOCKER_COMPONENT_NAMES+=' PROG:ant';
-
-          __record 'INFO' "Adding Apache-Ant for docker build ( ${ANT_VERSION} )...";
-        else
-          __record 'ERROR' 'Cannot find Apache-Ant handler library!';
-        fi;
-        ;;
-    -m|--maven)
-        shift;
-        if [ -f 'lib/maven_handler.sh' ];
-        then
-          [ -z "$1" ] && pusharg='default' || pusharg="$1"
-          . 'lib/maven_handler.sh' "${pusharg}";
-        
-          DOCKER_COMPONENTS=$(( DOCKER_COMPONENTS + 1 ));
-          DOCKER_COMPONENT_NAMES+=' PROG:maven';
-
-          __record 'INFO' "Adding Apache-Maven for docker build ( ${MAVEN_VERSION} )...";
-        else
-          __record 'ERROR' 'Cannot find Apache-Maven handler library!';
-        fi;
+    -s|--skipclean)
+        SKIP_CLEAN=1;
         ;;
     -u|--ubuntu)
         shift;
@@ -215,35 +227,19 @@ build_image()
         DOCKER_COMPONENT_NAMES+=' OS:ubuntu';
         __record 'INFO' "Using Ubuntu for docker build ( ${UBUNTU_VERSION} -- ${UBUNTU_NAME} )..."
         ;;
-    -n|--contname)
-        shift;
-        DOCKERFILE_GENERATED_NAME="$1";
-        ;;
     -v|--contvers)
         shift;
         DOCKER_CONTAINER_VERSION="$1";
-        ;;
-    -e|--env)
-        shift;
-        ENV_SETTINGS+=" $1";
-        ;;
-    -p|--package)
-        shift;
-        UBUNTU_PACKAGES+=" $1";
         ;;
     -x|--single)
         [ "${DOCKER_COMPONENTS}" -le 1 ] && BUILD_TYPE=1;
         ;;
     -y|--composite)
-		__record 'WARN' "Composite build not available at this time...";
-        BUILD_TYPE=1;
+        [ "${ALLOW_COMPOSITE_BUILDER_PATTERN}" -eq 1 ] && BUILD_TYPE=3 || BUILD_TYPE=2;
         ;;
     -z|--multistage)
-	    BUILD_TYPE=4;
-		;;
-	-s|--skipclean)
-        SKIP_CLEAN=1;
-        ;;
+	      BUILD_TYPE=4;
+		    ;;
     --)
         shift
         break
@@ -271,27 +267,8 @@ build_image()
 
   __record 'INFO' "Dockerfile generated at location --> $( \dirname "${DOCKERFILE}" )"
 
-  if [ -z "${DOCKER_DRYRUN}" ] || [ "${DOCKER_DRYRUN}" -eq 0 ]
-  then
-    \which docker >/dev/null 2>&1
-    if [ $? -eq 0 ]
-    then
-      pushd "$( \dirname "${DOCKERFILE}" )" >/dev/null 2>&1
-      \docker build --tag ${DOCKERFILE_GENERATED_NAME}:${DOCKER_CONTAINER_VERSION} .
-      if [ $? -eq 0 ]
-      then
-        __record 'INFO' 'Providing image from docker for upload/distribution...'
-        \docker save --output "${DOCKERFILE_GENERATED_NAME}-${DOCKER_CONTAINER_VERSION}.tar" ${DOCKERFILE_GENERATED_NAME}:${DOCKER_CONTAINER_VERSION}
-        \gzip -f "${DOCKERFILE_GENERATED_NAME}-${DOCKER_CONTAINER_VERSION}.tar"
-        __record 'INFO' "Image can be found at --> $( \dirname "${DOCKERFILE}" )/${DOCKERFILE_GENERATED_NAME}-${DOCKER_CONTAINER_VERSION}.tar.gz"
-      else
-        __record 'ERROR' "Issue encountered generating image for ${DOCKERFILE_GENERATED_NAME}:${DOCKER_CONTAINER_VERSION}"
-        __record 'WARN' 'Cleanup needed for stale docker images and stale Dockerfiles'
-      fi
-      popd >/dev/null 2>&1
-      RC=$?
-    fi
-  fi
+  run_docker
+  RC=$?
   return "${RC}"
 }
 
@@ -308,8 +285,20 @@ cleanup()
     done < "${__CLEANUP_FILE}"
   fi
 
-  \rm -f "${__CLEANUP_FILE}"
+  [ -f "${__CLEANUP_FILE}" ] && \rm -f "${__CLEANUP_FILE}"
+
+  [ -n "${DOCKER_EXE_VERSION}" ] && docker_cleanup
+
   return 0
+}
+
+docker_cleanup()
+{
+  typeset dangling_images="$( docker images -qf dangling=true --no-trunc )";
+  [ -n "${dangling_images}" ] && \docker rmi --force ${dangling_images};
+  dangling_images="$( docker images --format "{{.ID}}:{{.Tag}}" | \grep "none" | \cut -f 1 -d ':' )";
+  [ -n "${dangling_images}" ] && \docker rmi --force ${dangling_images}
+  \docker container prune --force >/dev/null 2>&1
 }
 
 generate_docker_tag()
@@ -330,16 +319,15 @@ generate_docker_tag()
       progs="$( printf "%s\n" "${progs}" | \cut -f 2 -d ':' | \awk '{printf "%s ",$0} END {print ""}' | \awk '{$1=$1;print}' )"
     fi
 
-    ### This may add in dependent components which may elevate from singel to multistage build
-    progs="$( reorder_by_dependencies "${progs}" )"
-
+    [ "${BUILD_TYPE}" -ne 1 ] && progs="$( reorder_by_dependencies "${progs}" )"
+    
     DOCKER_COMPONENTS="$( printf "%s\n" "${progs}" | \awk '{print NF}' )"
     if [ "${DOCKER_COMPONENTS}" -gt 1 ]
     then
       typeset osdesignation="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep 'OS' )"
       DOCKER_COMPONENT_NAMES="$( printf "%s\n" "${progs}" | \awk '{ for(i = 1; i <= NF; i++) { print "PROG:"$i } }' )"
       DOCKER_COMPONENT_NAMES+=" ${osdesignation}"
-      BUILD_TYPE=4
+      reset_build_type_for_docker
     fi
 
     if [ "${DOCKER_COMPONENTS}" -eq 1 ]
@@ -366,7 +354,7 @@ generate_docker_tag()
       eval "pvers=\${${upp}_VERSION}"
       if [ -z "${pvers}" ]
       then
-        . "lib/${p}_handler.sh" 'default';
+        . "${__PROGRAM_DIR}/lib/${p}_handler.sh" 'default';
         eval "pvers=\${${upp}_VERSION}"
       fi
       typeset marker="${p:0:1}"
@@ -390,6 +378,15 @@ generate_docker_tag()
     DOCKERFILE_GENERATED_NAME='syn_ubuntu'
   fi
   return 0
+}
+
+get_docker_version()
+{
+  typeset RC=0
+  \which docker >/dev/null 2>&1
+  RC=$?
+  [ "${RC}" -eq 0 ] && DOCKER_EXE_VERSION="$( docker -v | \cut -f 3 -d ' ' | \cut -f 1-2 -d '.' )"
+  return "${RC}"
 }
 
 manage_docker_image()
@@ -459,7 +456,7 @@ record_cleanup()
 reorder_by_dependencies()
 {
   typeset active_progs="$1"
-  typeset depfile="${__CURRENT_DIR}/setup_files/dependency.dat"
+  typeset depfile="${__PROGRAM_DIR}/setup_files/dependency.dat"
 
   [ -z "${active_progs}" ] && return 0
 
@@ -510,6 +507,74 @@ reorder_by_dependencies()
   return 0
 }
 
+reset_build_type_for_docker()
+{
+  typeset RC=0
+  [ -z "${DOCKER_EXE_VERSION}" ] && get_docker_version
+  
+  if [ -n "${DOCKER_EXE_VERSION}" ]
+  then
+    typeset DOCKER_EXE_MAJOR_VERSION="$( printf "%s\n" "${DOCKER_EXE_VERSION}" | \cut -f 1 -d '.' )"
+    typeset DOCKER_EXE_MINOR_VERSION="$( printf "%s\n" "${DOCKER_EXE_VERSION}" | \cut -f 2 -d '.' )"
+    DOCKER_EXE_MINOR_VERSION="$( \awk -v a="${DOCKER_EXE_MINOR_VERSION}" 'BEGIN {print (a == a + 0)}' )"
+
+    if [ "${DOCKER_EXE_MAJOR_VERSION}" -le 17 ]
+    then
+      if [ "${DOCKER_EXE_MINOR_VERSION}" -lt 5 ]
+      then
+        [ "${BUILD_TYPE}" -eq 4 ] && __check_for_docker_builder_pattern_usage
+      fi
+    fi
+  fi
+
+  case "${BUILD_TYPE}" in
+  1)  BUILD_TYPE_NAME='SINGLE';;
+  2)  BUILD_TYPE_NAME='COMPOSITE (MONOLITHIC)';;
+  3)  BUILD_TYPE_NAME='COMPOSITE (STAGED BUILDS)';;
+  4)  BUILD_TYPE_NAME='MULTI_STAGE (OPTIMIZED)';;
+  *)  BUILD_TYPE_NAME='UNKNOWN';;
+  esac
+
+  return "${RC}"
+}
+
+run_docker()
+{
+  typeset RC=0
+
+  if [ -z "${DOCKER_DRYRUN}" ] || [ "${DOCKER_DRYRUN}" -eq 0 ]
+  then
+    get_docker_version
+    if [ -n "${DOCKER_EXE_VERSION}" ]
+    then
+      __record 'INFO' "Using Docker version --> ${DOCKER_EXE_VERSION}"
+      docker_cleanup
+
+      reset_build_type_for_docker
+      RC=$?
+      [ "${RC}" -ne 0 ] && return "${RC}"
+
+      __record 'INFO' "Requested/Inferred Build Type : ${BUILD_TYPE_NAME}"
+
+      if [ "${BUILD_TYPE}" -eq 2 ] || [ "${BUILD_TYPE}" -eq 3 ]
+      then
+        if [ "${ALLOW_COMPOSITE_BUILDER_PATTERN}" -eq 1 ]
+        then
+          record_cleanup "$( \ls -1 ${__PROGRAM_DIR}/ubuntu/${DOCKERFILE_GENERATED_NAME}__${DOCKER_CONTAINER_VERSION}/${UBUNTU_VERSION}/${DOCKER_ARCH}/components )"
+          . "${__PROGRAM_DIR}/lib/composite_builder.sh"
+        fi
+        . "${__PROGRAM_DIR}/lib/run_docker_build.sh" "${DOCKERFILE}"
+        RC=$?
+      else
+        . "${__PROGRAM_DIR}/lib/run_docker_build.sh" "${DOCKERFILE}"
+        RC=$?
+      fi
+    fi
+  fi
+
+  return "${RC}"
+}
+
 write_dockerfile()
 {
   typeset RC=0
@@ -534,25 +599,30 @@ write_dockerfile()
   for comp in ${ordered_components}
   do
     comp="$( printf "%s\n" "${comp}" | \cut -f 2 -d ':' )"
-    . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${comp}.sh"
+    . "${__PROGRAM_DIR}/dockerfile_reqs/write_dockerfile_${comp}.sh"
     RC=$?
 
     [ "${RC}" -ne 0 ] && return "${RC}"
 
     typeset upcomp="$( printf "%s\n" "${comp}" | \tr '[:lower:]' '[:upper:]' )"
-    eval "version=\${${upcomp}_VERSION}"
- 
+    if [ "${BUILD_TYPE}" -ne 2 ]
+    then
+      eval "version=\${${upcomp}_VERSION}"
+    else
+      version="${UBUNTU_VERSION}"
+    fi
+
     write_dockerfile_${comp} "${version}"
     RC=$?
     [ "${RC}" -ne 0 ] && return "${RC}"
   done
 
-  if [ "${BUILD_TYPE}" -eq 4 ]
+  if [ "${BUILD_TYPE}" -gt 1 ]
   then
     typeset os_component="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep  'OS:' )"
     os_component="$( printf "%s\n" "${os_component}" | \cut -f 2 -d ':' )"
 
-    . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_${os_component}.sh"
+    . "${__PROGRAM_DIR}/dockerfile_reqs/write_dockerfile_${os_component}.sh"
     typeset upcomp="$( printf "%s\n" "${os_component}" | \tr '[:lower:]' '[:upper:]' )"
 
     eval "version=\${${upcomp}_VERSION}"
@@ -571,40 +641,36 @@ Usage : $0 [options]
 NOTE: Long options are NOT provided when running under MacOSX
 
 Options :
-  -h | --help           Show this help screen and exit.
-  -d | --dryrun         Build docker file(s) but do NOT initiate docker engine build.
-  -s | --skipclean      Skip cleaning up once script ends.
-
-  -j | --java <>        Enable Java inclusion into docker image.  Input associated
-                           with this option is the version of the application.
-  -a | --ant <>         Enable Apache-Ant inclusion into docker image.  Input
-                           associated with this option is the version of the
-                           application.
-  -m | --maven <>       Enable Apache-Maven inclusion into docker image.  Input
-                           associated with this option is the version of the
-                           application.
-  -u | --ubuntu <>      Enable Ubuntu server basis for docker image.  Input
-                           associated with this option is either version ID or
-                           code name for Ubuntu
-
-
-  -r | --dockerdir <>   Define toplevel of tree representing docker files
-  -v | --contvers  <>   Container version to associate to docker build
-  -n | --contname  <>   Container repository name for docker build
-  
-  -e | --env <>         Environment setting to include into docker build image.
-  -p | --package <>     Ubuntu package to include into upgrade of basis docker
-                            image.  This option can be used more than once or
-                            multiple packages can be associated per calling
-                            instance (in quotes)
-
-
-  -x | --single         Allow for a single builds for any applications to be made
-                            into separate docker files
-  -y | --composite      Allow for a composite dockerfile for all applications to be
-                            assembled.
-  -z | --multistage     Allow for a multistage dockerfile for all applications to be
-                            assembled.
+  -a | --allowbuilder       Allow for multistage pseudo processing
+  -c | --ubuntupackage <>   Ubuntu package to include into upgrade of basis docker
+                               image.  This option can be used more than once or
+                               multiple packages can be associated per calling
+                               instance (in quotes)
+  -d | --dryrun             Build docker file(s) but do NOT initiate docker engine build(s).
+  -e | --env <>             Environment setting to include into docker build image.
+  -h | --help               Show this help screen and exit.
+  -n | --contname <>        Container repository name for docker build.
+  -p | --package <>         Enable package inclusion into docker image.  Input associated
+                               with this option is the version of the application.
+                               This option can be used more than once.
+  -q | --quiet              Request docker building to be "less" chatty.
+  -r | --dockerdir <>       Define toplevel of tree representing docker files
+  -s | --skipclean          Skip cleaning up once script ends.
+  -u | --ubuntu <>          Enable Ubuntu server basis for docker image.  Input
+                               associated with this option is either version ID or
+                               code name for Ubuntu OS requested.
+                               Default version of Ubuntu is '${__DEFAULT_UBUNTU_VERSION}'
+  -v | --contvers <>        Container version to associate to docker build.
+                               Default version is '${__DEFAULT_CONTAINER_VERSION}'
+  -x | --single             Allow for a single builds for any applications to be made
+                               with separate docker files
+  -y | --composite          Allow for a composite dockerfile for all applications to be
+                               assembled.  Use (-a|--allowbuilder}) to mimic multistage
+                               building with older docker version.
+  -z | --multistage         Allow for true multistage dockerfile for all applications to be
+                               assembled.  Works with docker version 17.05 or higher only.
+                               Composite building will be reselected if docker version is not
+                               sufficient.
 EOH
   return 0
 }
@@ -613,11 +679,22 @@ EOH
 # Absolute minimum default settings
 ###############################################################################
 __CURRENT_DIR="$( \pwd -L )"
+
+__PROGRAM_DIR="$( \dirname "$0" )"
+pushd "${__PROGRAM_DIR}" >/dev/null 2>&1
+__PROGRAM_DIR="$( \pwd -L )"
+popd >/dev/null 2>&1
+
 __CLEANUP_FILE="${__CURRENT_DIR}/.cleanup"
 
 __read_defaults
 
 add_environment_setting_default "__ENTRYPOINT_DIR=${__ENTRYPOINT_DIR}"
+#add_environment_setting_default "ENABLE_DETAILS=1" "__BYPASS__=1"
 
 build_image "$@"
+__RC=$?
+
 cleanup
+
+exit "${__RC}"

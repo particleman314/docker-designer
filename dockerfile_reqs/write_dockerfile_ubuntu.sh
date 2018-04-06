@@ -87,7 +87,19 @@ EOD
 __record_ubuntu_body()
 {
   typeset filename="$1"
-  \cat <<-EOD >> "${filename}"  
+
+  if [ -n "${DOCKER_QUIET_FLAG}" ]
+  then
+    \cat <<-EOD >> "${filename}"  
+##############################################################################
+# Download base packages for installation
+##############################################################################
+RUN apt-get update; \\
+    apt-get install -y ${UBUNTU_PACKAGES}
+
+EOD
+  else
+    \cat <<-EOD >> "${filename}"  
 ##############################################################################
 # Download base packages for installation
 ##############################################################################
@@ -96,6 +108,8 @@ RUN echo "[ INFO  ] Ubuntu Version = ${UBUNTU_VERSION}" && sleep 1; \\
     apt-get install -y ${UBUNTU_PACKAGES}
 
 EOD
+  fi
+
   return 0
 }
 
@@ -153,6 +167,34 @@ EOD
   return 0
 }
 
+__record_ubuntu_install_composite()
+{
+  typeset filename="$1"
+
+  if [ -n "${DOCKER_QUIET_FLAG}" ]
+  then
+    \cat <<-EOD >> "${filename}"  
+##############################################################################
+# Begin the installation process
+##############################################################################
+RUN /tmp/install_composite.sh; rm /tmp/install_composite.sh
+
+EOD
+  else
+    \cat <<-EOD >> "${filename}"  
+##############################################################################
+# Begin the installation process
+##############################################################################
+RUN echo "[ INFO  ] Preparing prebuilt packages" && sleep 1; \\
+    /tmp/install_composite.sh; \\
+    rm /tmp/install_composite.sh
+
+EOD
+  fi
+
+  return 0
+}
+
 __record_ubuntu_linkage()
 {
   typeset filename="$1"
@@ -199,13 +241,20 @@ prepare_ubuntu_docker_contents()
   fi
 
   ### If SINGLE or COMPOSITE BUILD (single image created)
-  if [ "${BUILD_TYPE}" -eq 1 ] || [ "${BUILD_TYPE}" -eq 2 ]
+  if [ "${BUILD_TYPE}" -lt 4 ]
   then
     __record_ubuntu_header "${filename}"
     __record_ubuntu_body "${filename}"
     __record_ubuntu_environment "${filename}"
     [ -n "${ENV_SETTINGS}" ] && __record_addon_variables "${filename}"
     [ "${DOCKER_COMPONENTS}" -ge 1 ] && __record_components "${filename}"
+
+    \mkdir -p "${OUTPUT_DIR}/components"
+    if [ "${BUILD_TYPE}" -eq 3 ]
+    then
+      \cp -f "${__PROGRAM_DIR}/installation_files/install_composite.sh" "${OUTPUT_DIR}/components"
+      __record_ubuntu_install_composite "${filename}"
+    fi
 
     typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
     typeset comp=
@@ -217,9 +266,27 @@ prepare_ubuntu_docker_contents()
 
       typeset version=
       eval "version=\${${upcomp}_VERSION}"
-      \cat "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}/DockerSubcomponent_${comp}" >> "${filename}"
-      \rm -f "${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}/DockerSubcomponent_${comp}"
+
+      if [ "${BUILD_TYPE}" -eq 2 ]
+      then
+        \cat "${OUTPUT_DIR}/DockerSubcomponent_${comp}" >> "${filename}"
+        \rm -f "${OUTPUT_DIR}/DockerSubcomponent_${comp}"
+      else
+        \cp -f "${__PROGRAM_DIR}/setup_files/synopsys_setup_${comp}.sh" "${OUTPUT_DIR}/components"
+      fi
+
+      typeset orig_install_dir=
+      case "${upcomp}" in
+      'MAVEN'  )  eval "home=\${M2_HOME}"; orig_install_dir="$( \dirname "${home}" )/apache-maven-${MAVEN_VERSION}";;
+      'ANT'    )  eval "home=\${${upcomp}_HOME}"; orig_install_dir="$( \dirname "${home}" )/apache-ant-${ANT_VERSION}";;
+      'JAVA'   )  eval "home=\${${upcomp}_HOME}"; orig_install_dir="$( \dirname "${home}" )/oracle-jdk-${JAVA_VERSION}";;
+      esac
+      #__record_ubuntu_linkage "${filename}" "${orig_install_dir}" "${home}"
+
+      printf "%s\n" "${comp}:${home}:$( \basename "${orig_install_dir}" )" >> "${OUTPUT_DIR}/components/installation_drop.pkg"
     done
+
+    \cp -f "${__PROGRAM_DIR}/setup_files/synopsys_setup.sh" "${OUTPUT_DIR}/components"
   else
     typeset components="$( printf "%s\n" ${DOCKER_COMPONENT_NAMES} | \grep -v 'OS:' )"
     typeset comp=
@@ -276,10 +343,8 @@ write_dockerfile_ubuntu()
   typeset RC=0
   typeset version="$1"
 
-  typeset OUTPUT_DIR=
-  [ "${BUILD_TYPE}" -eq 1 ] && OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}"
-  [ "${BUILD_TYPE}" -eq 4 ] && OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}__${DOCKER_CONTAINER_VERSION}/${version}/${DOCKER_ARCH}"
-
+  typeset OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}__${DOCKER_CONTAINER_VERSION}/${version}/${DOCKER_ARCH}"
+ 
   \mkdir -p "${OUTPUT_DIR}"
 
   DOCKERFILE="${OUTPUT_DIR}/Dockerfile"

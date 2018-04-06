@@ -33,7 +33,13 @@ else
   export ENABLE_DETAILS
 fi
 
-__IMAGE_BINARY_DIR="${__CURRENT_DIR}/binaries/apache-ant"
+if [ "${__DEFAULT_ANT_BINARY_STORE:0:1}" != '/' ]
+then
+  __IMAGE_BINARY_DIR="${__CURRENT_DIR}/${__DEFAULT_ANT_BINARY_STORE}"
+else
+  __IMAGE_BINARY_DIR="${__DEFAULT_ANT_BINARY_STORE}"
+fi
+
 __SOFTWARE='Apache-Ant'
 
 check_ant_settings()
@@ -93,16 +99,16 @@ prepare_docker_contents()
   \cp -f "${__IMAGE_BINARY_DIR}/${antfile}" "${COMPONENT_DIR}/components"
   record_cleanup "${COMPONENT_DIR}/components/${antfile}"
 
-  \cp -f "${__CURRENT_DIR}/installation_files/install_ant.sh" "${COMPONENT_DIR}/components"
+  \cp -f "${__PROGRAM_DIR}/installation_files/install_ant.sh" "${COMPONENT_DIR}/components"
   record_cleanup "${COMPONENT_DIR}/components/install_ant.sh"
 
-  \cp -f "${__CURRENT_DIR}/setup_files/synopsys_setup_ant.sh" "${COMPONENT_DIR}/components"
+  \cp -f "${__PROGRAM_DIR}/setup_files/synopsys_setup_ant.sh" "${COMPONENT_DIR}/components"
   record_cleanup "${COMPONENT_DIR}/components/synopsys_setup_ant.sh"
 
-  \cp -f "${__CURRENT_DIR}/setup_files/synopsys_setup.sh" "${COMPONENT_DIR}/components"
+  \cp -f "${__PROGRAM_DIR}/setup_files/synopsys_setup.sh" "${COMPONENT_DIR}/components"
   record_cleanup "${COMPONENT_DIR}/components/synopsys_setup.sh"
 
-  \cp -f "${__CURRENT_DIR}/setup_files/dependency.dat" "${COMPONENT_DIR}/components"
+  \cp -f "${__PROGRAM_DIR}/setup_files/dependency.dat" "${COMPONENT_DIR}/components"
   record_cleanup "${COMPONENT_DIR}/components/dependency.dat"
 
   return "${RC}"
@@ -117,7 +123,7 @@ write_dockerfile_ant()
   RC=$?
   [ "${RC}" -ne 0 ] && return "${RC}"
 
-  if [ "${BUILD_TYPE}" -ne 2 ]
+  if [ "${BUILD_TYPE}" -ne 2 ] && [ "${BUILD_TYPE}" -ne 3 ]
   then
     [ "${BUILD_TYPE}" -eq 4 ] && DOCKER_SUBIMAGE_MAPPING+=" ant:${CURRENT_IMAGE_ID}"
     OUTPUT_DIR="${DOCKERFILE_LOCATION}/ant/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}"
@@ -126,7 +132,7 @@ write_dockerfile_ant()
     \mkdir -p "${OUTPUT_DIR}"
     [ "${BUILD_TYPE}" -ne 4 ] && \rm -f "${DOCKERFILE}"
 
-    . "${__CURRENT_DIR}/dockerfile_reqs/write_dockerfile_ubuntu.sh"
+    . "${__PROGRAM_DIR}/dockerfile_reqs/write_dockerfile_ubuntu.sh"
 
     __record_ubuntu_header "${DOCKERFILE}"
     __record_ubuntu_environment "${DOCKERFILE}"
@@ -157,14 +163,35 @@ write_dockerfile_ant()
       RC=$?
     fi
   else
-    OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}/${version}/${DOCKER_ARCH}"
-    DOCKERFILE="${OUTPUT_DIR}/DockerSubcomponent_ant"
-    \mkdir -p "${OUTPUT_DIR}"
-    \rm -f "${OUTPUT_DIR}/DockerSubcomponent_ant"
+    if [ "${BUILD_TYPE}" -eq 2 ]
+    then
+      OUTPUT_DIR="${DOCKERFILE_LOCATION}/ubuntu/${DOCKERFILE_GENERATED_NAME}__${DOCKER_CONTAINER_VERSION}/${version}/${DOCKER_ARCH}"
+      DOCKERFILE="${OUTPUT_DIR}/DockerSubcomponent_ant"
+      \mkdir -p "${OUTPUT_DIR}"
+      \rm -f "${OUTPUT_DIR}/DockerSubcomponent_ant"
 
-    write_dockerfile_body "${DOCKERFILE}"
-    prepare_docker_contents
-    RC=$?
+      write_dockerfile_body "${DOCKERFILE}"
+      prepare_docker_contents
+      RC=$?
+    else
+      OUTPUT_DIR="${DOCKERFILE_LOCATION}/ant/syn_ant/${version}/${DOCKER_ARCH}"
+      DOCKERFILE="${OUTPUT_DIR}/Dockerfile"
+      \mkdir -p "${OUTPUT_DIR}"
+      \rm -f "${DOCKERFILE}"
+
+      __record_ubuntu_header "${DOCKERFILE}"
+      __record_ubuntu_environment "${DOCKERFILE}"
+      __record_addon_variables "${DOCKERFILE}"  "${ENV_SETTINGS_ANT}"
+
+      __record_components "${DOCKERFILE}"
+
+      write_dockerfile_body "${DOCKERFILE}"
+      __record_ubuntu_footer "${DOCKERFILE}"
+      prepare_docker_contents
+      RC=$?
+
+      DOCKER_SUBIMAGE_MAPPING+=" ant:${DOCKERFILE}"
+    fi
   fi
 
   return "${RC}"
@@ -174,14 +201,26 @@ write_dockerfile_body()
 {
   typeset dckfl="$1"
 
-  \cat <<-EOD >> "${dckfl}"
+  if [ -n "${DOCKER_QUIET_FLAG}" ]
+  then
+    \cat <<-EOD >> "${dckfl}"
 ##############################################################################
 # Begin the installation process
 ##############################################################################
-RUN echo "[ INFO  ] Apache-Ant Version = ${ANT_VERSION}" && sleep 1;\\
+RUN /tmp/install_ant.sh; rm /tmp/install_ant.sh
+
+EOD
+  else
+    \cat <<-EOD >> "${dckfl}"
+##############################################################################
+# Begin the installation process
+##############################################################################
+RUN echo "[ INFO  ] Apache-Ant Version = ${ANT_VERSION}" && sleep 1; \\
     /tmp/install_ant.sh; \\
     rm /tmp/install_ant.sh
 
 EOD
+  fi
+
   return 0
 }

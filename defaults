@@ -1,7 +1,7 @@
 ########################################################
 #package: curl wget less vim ssh
 ########################################################
-__DEFAULT_BINARY_STORE='binaries'
+__DEFAULT_BINARY_STORE="${__DEFAULT_BINARY_STORE:-binaries}"
 
 __DEFAULT_UBUNTU_VERSION=16.04
 __DEFAULT_CONTAINER_VERSION=1.0

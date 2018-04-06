@@ -43,6 +43,9 @@ build_ant_from_source()
 
 install_setup_scripts()
 {
+  [ ! -f "${__ENTRYPOINT_DIR}/.dependency.dat" ] && [ -f 'dependency.dat' ] && \mv -f 'dependency.dat' "${__ENTRYPOINT_DIR}"
+  [ ! -f '/usr/local/bin/synopsys_setup.sh' ] && [ -f 'synopsys_setup.sh' ] && \mv -f 'synopsys_setup.sh' '/usr/local/bin/'
+
   if [ ! -f 'synopsys_setup_maven.sh' ]
   then
     printf "%s\n" '[ ERROR ] Cannot install necessary setup script for Apache-Maven!' >&2
@@ -51,9 +54,7 @@ install_setup_scripts()
   fi
 
   \mv -f 'synopsys_setup_maven.sh' "${__ENTRYPOINT_DIR}"
-  [ ! -f "${__ENTRYPOINT_DIR}/.dependency.dat" ] && [ -f 'dependency.dat' ] && \mv -f 'dependency.dat' "${__ENTRYPOINT_DIR}"
-  [ ! -f '/usr/local/bin/synopsys_setup.sh' ] && [ -f 'synopsys_setup.sh' ] && \mv -f 'synopsys_setup.sh' '/usr/local/bin/'
-  return 0
+  return $?
 }
 
 make_symlinks()
